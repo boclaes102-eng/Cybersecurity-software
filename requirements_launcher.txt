@@ -1,0 +1,25 @@
+# CyberSuite launcher GUI dependencies
+# Install with:  pip install -r requirements_launcher.txt
+
+customtkinter>=5.2.0
+
+# ── Tool dependencies (install all so the tools work inside the launcher) ──
+
+# NIDS — Network Intrusion Detection System
+scapy>=2.5.0
+rich>=13.7.0
+numpy>=1.26.0
+
+# PAS — Password Auditing Suite
+click>=8.1
+requests>=2.31
+urllib3>=2.0
+passlib[bcrypt]>=1.7
+
+# SMA — Static Malware Analyzer
+pefile>=2023.2.7
+pyelftools>=0.31
+# yara-python>=4.5.0   # optional — SMA gracefully skips if unavailable
+
+# Build / packaging (optional, only needed to produce the .exe)
+# pyinstaller>=6.0
