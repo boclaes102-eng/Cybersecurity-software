@@ -13,7 +13,6 @@ from ..utils.paths import NIDS_DIR
 from ..utils.runner import ToolRunner
 
 _MODES = [
-    "Interactive Menu",
     "Live Capture",
     "PCAP Replay",
     "List Interfaces",
@@ -21,11 +20,10 @@ _MODES = [
 ]
 
 _MODE_HINTS = {
-    "Interactive Menu":   "Launch NIDS's own numbered menu (runs in console).",
     "Live Capture":       "Capture packets on a live network interface in real-time.",
     "PCAP Replay":        "Analyse a pre-recorded .pcap / .pcapng file offline.",
     "List Interfaces":    "Print all available network interfaces and exit.",
-    "Generate Test PCAP": "Create a synthetic attack-traffic PCAP for testing.",
+    "Generate Test PCAP": "Generate a synthetic attack-traffic PCAP then analyse it (no privileges needed — great for demos).",
 }
 
 _nids_module: Optional[types.ModuleType] = None
@@ -91,7 +89,7 @@ class NIDSPage(ctk.CTkFrame):
         # Mode selector
         ctk.CTkLabel(opts, text="Mode", anchor="e", font=ctk.CTkFont(weight="bold")).grid(
             row=row, column=0, sticky="e", padx=(0, 12), pady=10)
-        self._mode_var = ctk.StringVar(value="Interactive Menu")
+        self._mode_var = ctk.StringVar(value="Live Capture")
         mode_cb = ctk.CTkComboBox(opts, variable=self._mode_var, values=_MODES,
                                   command=self._on_mode_change, state="readonly",
                                   font=ctk.CTkFont(size=13))
@@ -100,7 +98,7 @@ class NIDSPage(ctk.CTkFrame):
 
         # Mode hint
         ctk.CTkLabel(opts, text="", anchor="e").grid(row=row, column=0)
-        self._hint_label = ctk.CTkLabel(opts, text=_MODE_HINTS["Interactive Menu"],
+        self._hint_label = ctk.CTkLabel(opts, text=_MODE_HINTS["Live Capture"],
                                          text_color="#8b949e", font=ctk.CTkFont(size=11),
                                          anchor="w", wraplength=500)
         self._hint_label.grid(row=row, column=1, sticky="w", pady=(0, 6))
@@ -196,7 +194,7 @@ class NIDSPage(ctk.CTkFrame):
         self._run_btn.pack(side="right")
 
         # Apply initial visibility
-        self._on_mode_change("Interactive Menu")
+        self._on_mode_change("Live Capture")
         self._refresh_ifaces()
 
     # ------------------------------------------------------------------
@@ -249,8 +247,51 @@ class NIDSPage(ctk.CTkFrame):
             self._output_cb("[ERROR] Could not load NIDS — directory missing or dependencies uninstalled.\n")
             return
 
-        argv = self._build_argv()
+        mode = self._mode_var.get()
+
+        self._run_btn.configure(text="⏹  Stop NIDS", fg_color="#da3633", hover_color="#b91c1c")
+
+        def on_done(code: int) -> None:
+            self.after(0, lambda: self._run_btn.configure(
+                text="▶  Run NIDS", fg_color="#238636", hover_color="#2ea043"))
+            self._output_cb(f"\n[Finished — exit code {code}]\n")
+
+        # ── Generate Test PCAP — special path (no sys.argv needed) ──────
+        if mode == "Generate Test PCAP":
+            self._output_cb(
+                f"\n{'='*60}\n▶ NIDS  [Generate Test PCAP + Replay]\n{'='*60}\n")
+
+            def run_gen_pcap() -> int:
+                nids_str = str(NIDS_DIR)
+                if nids_str not in sys.path:
+                    sys.path.insert(0, nids_str)
+
+                from tools.generate_test_pcap import generate          # type: ignore
+                from nids.alerts.manager import AlertManager           # type: ignore
+                from nids.alerts.siem import SIEMWriter                # type: ignore
+                from nids.detection.engine import DetectionEngine      # type: ignore
+
+                out = "test_traffic.pcap"
+                print(f"[*] Generating synthetic attack traffic → {out}\n")
+                generate(out)
+                print(f"[+] Generated {out} — starting analysis…\n")
+
+                engine    = DetectionEngine()
+                alert_mgr = AlertManager()
+                with SIEMWriter("alerts.ndjson") as siem:
+                    mod._replay_pcap(out, engine, alert_mgr, siem)    # type: ignore[attr-defined]
+                return 0
+
+            self._runner.run(run_gen_pcap, done_cb=on_done,
+                             output_cb=self._output_cb, tool_name="NIDS/GenPCAP")
+            return
+
+        # ── All other modes — build argv and call mod.main() ────────────
+        argv = self._build_argv(mode)
         old_argv = sys.argv
+
+        self._output_cb(
+            f"\n{'='*60}\n▶ NIDS  [{' '.join(argv[1:])}]\n{'='*60}\n")
 
         def run_nids() -> int:
             sys.argv = argv
@@ -259,28 +300,14 @@ class NIDSPage(ctk.CTkFrame):
             finally:
                 sys.argv = old_argv
 
-        self._run_btn.configure(text="⏹  Stop NIDS", fg_color="#da3633", hover_color="#b91c1c")
-        self._output_cb(
-            f"\n{'='*60}\n▶ NIDS  [{' '.join(argv[1:])}]\n{'='*60}\n")
-
-        def on_done(code: int) -> None:
-            self.after(0, lambda: self._run_btn.configure(
-                text="▶  Run NIDS", fg_color="#238636", hover_color="#2ea043"))
-            self._output_cb(f"\n[Finished — exit code {code}]\n")
-
         self._runner.run(run_nids, done_cb=on_done,
                          output_cb=self._output_cb, tool_name="NIDS")
 
-    def _build_argv(self) -> list[str]:
-        mode = self._mode_var.get()
+    def _build_argv(self, mode: str) -> list[str]:
         argv = ["nids"]
 
-        if mode == "Interactive Menu":
-            return argv
         if mode == "List Interfaces":
             return argv + ["--list-interfaces"]
-        if mode == "Generate Test PCAP":
-            return argv  # NIDS interactive menu option 4 handles this
 
         if mode == "Live Capture":
             iface = self._iface_var.get().strip()
