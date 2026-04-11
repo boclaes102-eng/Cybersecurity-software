@@ -8,9 +8,7 @@ CyberSuite integrates a Network Intrusion Detection System, a Password Auditing 
 
 ## Screenshot
 
-![CyberSuite Pro launcher](assets/screenshot.png)
-
-> **Note:** drop a screenshot into `assets/screenshot.png` to make this render on GitHub.
+![CyberSuite Pro launcher](assets/11.04.2026_21.15.18_REC.png)
 
 ---
 
