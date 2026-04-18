@@ -25,7 +25,8 @@ from .pages.pas_page  import PASPage
 from .pages.sma_page  import SMAPage
 from .pages.wat_page  import WATPage
 from .pages.pgn_page  import PGNPage
-from .pages.ceh_page  import CEHPage
+from .pages.ceh_page   import CEHPage
+from .pages.recon_page import ReconPage
 from .utils.runner import ToolRunner
 
 ctk.set_appearance_mode("dark")
@@ -33,6 +34,7 @@ ctk.set_default_color_theme("blue")
 
 _NAV = [
     ("Home",  "home"),
+    ("Recon", "recon"),
     ("NIDS",  "nids"),
     ("PAS",   "pas"),
     ("SMA",   "sma"),
@@ -195,8 +197,9 @@ class App(ctk.CTk):
 
         # ── Build pages ───────────────────────────────────────────────────
         out = self.append_output
-        self._pages["home"] = HomePage(self._page_container, navigate_cb=self._navigate)
-        self._pages["nids"] = NIDSPage(self._page_container, self._runner, out)
+        self._pages["home"]  = HomePage(self._page_container, navigate_cb=self._navigate)
+        self._pages["recon"] = ReconPage(self._page_container, self._runner, out)
+        self._pages["nids"]  = NIDSPage(self._page_container, self._runner, out)
         self._pages["pas"]  = PASPage (self._page_container, self._runner, out)
         self._pages["sma"]  = SMAPage (self._page_container, self._runner, out)
         self._pages["wat"]  = WATPage (self._page_container, self._runner, out)
