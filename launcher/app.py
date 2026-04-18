@@ -56,6 +56,7 @@ class App(ctk.CTk):
         self.title("CyberSuite Pro — Security Toolkit")
         self.geometry("1280x820")
         self.minsize(960, 640)
+        self.after(0, lambda: self.state("zoomed"))
 
         self._runner = ToolRunner()
         self._pages: dict[str, ctk.CTkFrame] = {}
@@ -116,7 +117,7 @@ class App(ctk.CTk):
         # Status indicator
         status_frame = ctk.CTkFrame(sidebar, fg_color="#0d1117", corner_radius=8)
         status_frame.grid(row=4, column=0, padx=12, pady=8, sticky="ew")
-        self._status_dot  = ctk.CTkLabel(status_frame, text="",
+        self._status_dot  = ctk.CTkLabel(status_frame, text="●",
                                           font=ctk.CTkFont(size=10))
         self._status_dot.pack(side="left", padx=(10, 4), pady=8)
         self._status_text = ctk.CTkLabel(status_frame, text="Ready",
