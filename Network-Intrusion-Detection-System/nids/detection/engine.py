@@ -30,6 +30,7 @@ from typing import Protocol
 from nids.capture.parser import ParsedPacket
 from nids.detection.arp_spoof import ARPSpoofDetector
 from nids.detection.baseline import BaselineManager
+from nids.detection.correlator import CorrelationEngine
 from nids.detection.dns_tunnel import DNSTunnelDetector
 from nids.detection.icmp_amp import ICMPAmpDetector
 from nids.detection.models import Alert
@@ -52,6 +53,7 @@ class DetectionEngine:
 
     def __init__(self) -> None:
         self._baseline_mgr = BaselineManager()
+        self._correlator = CorrelationEngine()
 
         # Ordered pipeline — detectors fire in this sequence
         self._detectors: list[Detector] = [
@@ -100,6 +102,10 @@ class DetectionEngine:
             except Exception as exc:
                 # Detectors must be resilient; log but never crash
                 logger.debug("Detector %s raised: %s", type(detector).__name__, exc)
+
+        # ── Step 3: cross-detector correlation ───────────────────────────
+        corr_alerts = self._correlator.check(alerts)
+        alerts.extend(corr_alerts)
 
         self.alerts_total += len(alerts)
         return alerts

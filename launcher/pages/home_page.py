@@ -5,7 +5,7 @@ from typing import Callable
 
 import customtkinter as ctk
 
-from ..utils.paths import NIDS_DIR, PAS_DIR, SMA_DIR
+from ..utils.paths import NIDS_DIR, PAS_DIR, SMA_DIR, WAT_DIR, PGN_DIR, CEH_DIR
 
 _TOOLS = [
     {
@@ -44,6 +44,42 @@ _TOOLS = [
         ),
         "deps": ["pefile", "pyelftools", "rich", "requests"],
     },
+    {
+        "key": "wat",
+        "short": "WAT",
+        "title": "Web Application Tester",
+        "desc": (
+            "Active web vulnerability scanning:\n"
+            "Directory brute-force · Header security analysis\n"
+            "SQL injection detection · Reflected XSS detection\n\n"
+            "Multi-threaded. JSON report export."
+        ),
+        "deps": ["requests"],
+    },
+    {
+        "key": "pgn",
+        "short": "PGN",
+        "title": "Payload Generator",
+        "desc": (
+            "Offensive payload generation:\n"
+            "Reverse shells · Bind shells · Web shells\n"
+            "Encoder (base64 / URL / hex / PowerShell)\n\n"
+            "Built-in TCP listener to catch reverse shells."
+        ),
+        "deps": [],
+    },
+    {
+        "key": "ceh",
+        "short": "CEH",
+        "title": "CVE & Exploit Helper",
+        "desc": (
+            "Vulnerability intelligence:\n"
+            "NVD API v2 CVE search · CVE detail lookup\n"
+            "ExploitDB search (searchsploit or web)\n\n"
+            "Results sorted by CVSS score. JSON export."
+        ),
+        "deps": ["requests", "beautifulsoup4"],
+    },
 ]
 
 
@@ -69,26 +105,27 @@ class HomePage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             hdr,
-            text="🛡  CyberSuite Pro",
+            text="CyberSuite Pro",
             font=ctk.CTkFont(size=30, weight="bold"),
         ).pack(anchor="w")
         ctk.CTkLabel(
             hdr,
-            text="Three professional security tools — one unified launcher.",
+            text="Six professional security tools — one unified launcher.",
             text_color="gray",
             font=ctk.CTkFont(size=14),
         ).pack(anchor="w", pady=(2, 0))
 
         ctk.CTkFrame(self, height=1, fg_color="#30363d").pack(fill="x", padx=32, pady=16)
 
-        # ── Tool cards ──────────────────────────────────────────────────
+        # ── Tool cards (2 rows × 3 columns) ─────────────────────────────
         cards = ctk.CTkFrame(self, fg_color="transparent")
         cards.pack(fill="both", expand=True, padx=24, pady=0)
         cards.grid_columnconfigure((0, 1, 2), weight=1, uniform="card")
-        cards.grid_rowconfigure(0, weight=1)
+        cards.grid_rowconfigure((0, 1), weight=1)
 
-        for col, tool in enumerate(_TOOLS):
-            self._make_card(cards, tool, col)
+        for idx, tool in enumerate(_TOOLS):
+            row, col = divmod(idx, 3)
+            self._make_card(cards, tool, row, col)
 
         # ── Dependency status bar ────────────────────────────────────────
         bar = ctk.CTkFrame(self, corner_radius=8)
@@ -104,11 +141,11 @@ class HomePage(ctk.CTkFrame):
         row = ctk.CTkFrame(bar, fg_color="transparent")
         row.pack(fill="x", padx=8, pady=(0, 8))
 
-        all_deps = sorted({d.split("[")[0] for t in _TOOLS for d in t["deps"]})
+        all_deps = sorted({d.split("[")[0] for t in _TOOLS for d in t["deps"] if d})
         for dep in all_deps:
             ok = _dep_ok(dep)
             color = "#3fb950" if ok else "#f85149"
-            mark = "✓" if ok else "✗"
+            mark = "OK" if ok else "!!"
             ctk.CTkLabel(
                 row,
                 text=f"{mark} {dep}",
@@ -117,9 +154,9 @@ class HomePage(ctk.CTkFrame):
             ).pack(side="left", padx=8)
 
     # ------------------------------------------------------------------
-    def _make_card(self, parent: ctk.CTkFrame, tool: dict, col: int) -> None:
+    def _make_card(self, parent: ctk.CTkFrame, tool: dict, row: int, col: int) -> None:
         card = ctk.CTkFrame(parent, corner_radius=12)
-        card.grid(row=0, column=col, padx=8, pady=8, sticky="nsew")
+        card.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
         card.grid_rowconfigure(3, weight=1)
         card.grid_columnconfigure(0, weight=1)
 

@@ -16,11 +16,23 @@ class ToolRunner:
 
     The thread-aware writer (writer.py) routes all tool stdout/stderr to
     *output_cb* without touching the GUI thread's output.
+
+    Stop strategy (two layers):
+      1. stop_event is set first — tools that accept a stop_event kwarg can
+         exit cleanly at a checkpoint without waiting for the exception.
+      2. PyThreadState_SetAsyncExc injects KeyboardInterrupt as a fallback for
+         tools that don't check the event but do handle KeyboardInterrupt
+         (asyncio tasks cancel, Rich Live stops, etc.).
+         This works when the thread executes Python bytecode; it may not fire
+         immediately if the thread is blocked inside a C extension call (e.g.
+         Scapy's low-level sniffer loop).  The event gives such tools a
+         cooperative exit path they can check at safe points.
     """
 
     def __init__(self) -> None:
         self._thread: Optional[threading.Thread] = None
-        self.active_tool: str = ""          # readable name of the running tool
+        self.active_tool: str = ""
+        self.stop_event: threading.Event = threading.Event()
 
     # ------------------------------------------------------------------
     @property
@@ -45,6 +57,7 @@ class ToolRunner:
         """
         if self.is_running:
             return False
+        self.stop_event.clear()
         self.active_tool = tool_name
         self._thread = threading.Thread(
             target=self._body,
@@ -58,11 +71,12 @@ class ToolRunner:
     # ------------------------------------------------------------------
     def stop(self) -> None:
         """
-        Inject a KeyboardInterrupt into the runner thread.
+        Signal the running tool to stop.
 
-        This is the same signal Ctrl-C would produce; all three tools
-        handle it gracefully (asyncio tasks cancel, Rich Live stops, etc.).
+        Sets stop_event first (cooperative), then injects KeyboardInterrupt
+        (pre-emptive fallback) for tools that don't poll the event.
         """
+        self.stop_event.set()
         t = self._thread
         if t and t.is_alive() and t.ident:
             ctypes.pythonapi.PyThreadState_SetAsyncExc(

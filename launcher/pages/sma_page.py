@@ -6,7 +6,7 @@ import os
 import sys
 import types
 from pathlib import Path
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 from typing import Callable, Optional
 
 import customtkinter as ctk
@@ -59,7 +59,7 @@ class SMAPage(ctk.CTkFrame):
         # ── Header ──────────────────────────────────────────────────────
         hdr = ctk.CTkFrame(self, fg_color="transparent")
         hdr.pack(fill="x", padx=24, pady=(24, 4))
-        ctk.CTkLabel(hdr, text="🦠  Static Malware Analyzer",
+        ctk.CTkLabel(hdr, text="Static Malware Analyzer",
                      font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w")
         ctk.CTkLabel(hdr,
                      text="PE / ELF analysis without execution  ·  Entropy  ·  18 MITRE ATT&CK rules  ·  YARA  ·  VirusTotal",
@@ -108,7 +108,7 @@ class SMAPage(ctk.CTkFrame):
         key_row.grid(row=row, column=1, sticky="ew", pady=10)
         key_row.grid_columnconfigure(0, weight=1)
         self._vt_key_var = ctk.StringVar(value=os.environ.get("VT_API_KEY", ""))
-        self._vt_entry = ctk.CTkEntry(key_row, textvariable=self._vt_key_var, show="●",
+        self._vt_entry = ctk.CTkEntry(key_row, textvariable=self._vt_key_var, show="*",
                                       placeholder_text="Optional — or set VT_API_KEY env var")
         self._vt_entry.grid(row=0, column=0, sticky="ew")
         self._show_key = False
@@ -131,6 +131,9 @@ class SMAPage(ctk.CTkFrame):
                       command=lambda: self._browse(self._yara_var,
                                                    [("YARA", "*.yar *.yara"), ("All", "*.*")])).grid(
             row=0, column=1, padx=(8, 0))
+        ctk.CTkButton(yara_row, text="Edit…", width=70,
+                      command=self._open_yara_editor).grid(
+            row=0, column=2, padx=(6, 0))
         row += 1
 
         # JSON report
@@ -178,7 +181,7 @@ class SMAPage(ctk.CTkFrame):
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(fill="x", padx=24, pady=12)
         self._run_btn = ctk.CTkButton(
-            btn_frame, text="▶  Analyze Binary",
+            btn_frame, text="Analyze Binary",
             font=ctk.CTkFont(size=14, weight="bold"),
             fg_color="#238636", hover_color="#2ea043",
             height=42, command=self._run,
@@ -195,11 +198,11 @@ class SMAPage(ctk.CTkFrame):
             fmt = "PE (Windows)" if suffix in (".exe", ".dll", ".sys") else \
                   "ELF (Linux)"  if suffix in (".so", ".elf", "")       else suffix
             self._file_info.configure(
-                text=f"📄  {path.name}   •   {size}   •   {fmt}",
+                text=f"{path.name}   |   {size}   |   {fmt}",
                 text_color="#3fb950",
             )
         elif self._binary_var.get().strip():
-            self._file_info.configure(text="⚠  File not found", text_color="#f85149")
+            self._file_info.configure(text="[!] File not found", text_color="#f85149")
         else:
             self._file_info.configure(text="")
 
@@ -223,7 +226,7 @@ class SMAPage(ctk.CTkFrame):
 
     def _toggle_key(self) -> None:
         self._show_key = not self._show_key
-        self._vt_entry.configure(show="" if self._show_key else "●")
+        self._vt_entry.configure(show="" if self._show_key else "*")
         self._show_btn.configure(text="Hide" if self._show_key else "Show")
 
     # ------------------------------------------------------------------
@@ -255,19 +258,35 @@ class SMAPage(ctk.CTkFrame):
             finally:
                 sys.argv = old_argv
 
-        self._run_btn.configure(text="⏹  Stop", fg_color="#da3633", hover_color="#b91c1c")
+        self._run_btn.configure(text="Stop", fg_color="#da3633", hover_color="#b91c1c")
         self._output_cb(
-            f"\n{'='*60}\n▶ Analyzing: {Path(binary).name}\n{'='*60}\n")
+            f"\n{'='*60}\nAnalyzing: {Path(binary).name}\n{'='*60}\n")
 
         def on_done(code: int) -> None:
             self.after(0, lambda: self._run_btn.configure(
-                text="▶  Analyze Binary", fg_color="#238636", hover_color="#2ea043"))
+                text="Analyze Binary", fg_color="#238636", hover_color="#2ea043"))
             label = {0: "Clean / Low risk", 1: "Suspicious / Malicious",
                      2: "Error during analysis"}.get(code, f"exit {code}")
             self._output_cb(f"\n[Analysis complete — {label}]\n")
 
         self._runner.run(run_sma, done_cb=on_done,
                          output_cb=self._output_cb, tool_name="SMA")
+
+    def _open_yara_editor(self) -> None:
+        custom = self._yara_var.get().strip()
+        if custom and Path(custom).is_file():
+            target = Path(custom)
+        else:
+            target = SMA_DIR / "rules" / "default.yar"
+            if not target.is_file():
+                messagebox.showerror("YARA Editor", f"Rules file not found:\n{target}")
+                return
+
+        def on_save(path: Path, content: str) -> None:
+            path.write_text(content, encoding="utf-8")
+            self._yara_var.set(str(path))
+
+        _YaraEditorWindow(self, target, on_save)
 
     def _build_argv(self, binary: str) -> list[str]:
         argv = ["sma", binary]
@@ -288,3 +307,59 @@ class SMAPage(ctk.CTkFrame):
         if self._no_vt_var.get():
             argv.append("--no-vt")
         return argv
+
+
+class _YaraEditorWindow(ctk.CTkToplevel):
+    """Modal YARA rule editor — loads a .yar file, lets the user edit and save."""
+
+    def __init__(self, parent, path: Path, on_save_cb) -> None:
+        super().__init__(parent)
+        self.title(f"YARA Rule Editor — {path.name}")
+        self.geometry("900x680")
+        self.minsize(600, 400)
+        self._path = path
+        self._on_save_cb = on_save_cb
+        self.grab_set()  # modal
+        self._build(path)
+
+    def _build(self, path: Path) -> None:
+        # Toolbar
+        bar = ctk.CTkFrame(self, fg_color="#161b22", height=40, corner_radius=0)
+        bar.pack(fill="x")
+        bar.pack_propagate(False)
+
+        ctk.CTkLabel(bar, text=f"  {path}",
+                     text_color="#8b949e", font=ctk.CTkFont(size=11)).pack(
+            side="left", padx=8)
+
+        ctk.CTkButton(bar, text="Save", width=80, height=28,
+                      fg_color="#238636", hover_color="#2ea043",
+                      command=self._save).pack(side="right", padx=(4, 8), pady=6)
+        ctk.CTkButton(bar, text="Discard", width=80, height=28,
+                      fg_color="#21262d", hover_color="#30363d",
+                      command=self.destroy).pack(side="right", padx=4, pady=6)
+
+        # Editor
+        self._editor = ctk.CTkTextbox(
+            self,
+            font=ctk.CTkFont(family="Consolas", size=12),
+            fg_color="#010409",
+            text_color="#c9d1d9",
+            corner_radius=0,
+            wrap="none",
+        )
+        self._editor.pack(fill="both", expand=True)
+
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError as e:
+            content = f"// Could not read file: {e}\n"
+        self._editor.insert("1.0", content)
+
+    def _save(self) -> None:
+        content = self._editor.get("1.0", "end")
+        try:
+            self._on_save_cb(self._path, content)
+            self.destroy()
+        except OSError as e:
+            messagebox.showerror("Save Failed", str(e), parent=self)

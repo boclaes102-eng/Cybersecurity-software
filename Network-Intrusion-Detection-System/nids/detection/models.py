@@ -87,6 +87,11 @@ MITRE_TECHNIQUES: dict[str, MITRETag] = {
         "Non-Standard Port",
         "Command and Control",
     ),
+    "correlator": MITRETag(
+        "T1595",
+        "Active Scanning",
+        "Reconnaissance",
+    ),
 }
 
 

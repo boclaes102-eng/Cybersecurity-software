@@ -92,14 +92,14 @@ class PASPage(ctk.CTkFrame):
     def _build(self) -> None:
         hdr = ctk.CTkFrame(self, fg_color="transparent")
         hdr.pack(fill="x", padx=24, pady=(24, 4))
-        ctk.CTkLabel(hdr, text="🔑  Password Auditing Suite",
+        ctk.CTkLabel(hdr, text="Password Auditing Suite",
                      font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w")
         ctk.CTkLabel(hdr,
                      text="Hash identification  ·  Cracking  ·  Entropy scoring  ·  HIBP breach  ·  Wordlist mutation",
                      text_color="gray", font=ctk.CTkFont(size=12)).pack(anchor="w")
 
         tabs = ctk.CTkTabview(self)
-        tabs.pack(fill="both", expand=True, padx=24, pady=(8, 8))
+        tabs.pack(fill="both", expand=True, padx=24, pady=(8, 4))
 
         for name, builder in [
             ("Identify", self._build_identify),
@@ -112,7 +112,11 @@ class PASPage(ctk.CTkFrame):
             frame = tabs.add(name)
             frame.grid_columnconfigure(1, weight=1)
             builder(frame)
-            self._tab_labels.append(name)
+
+        self._progress = ctk.CTkProgressBar(self, mode="indeterminate",
+                                             progress_color="#1f6aa5")
+        self._progress.pack(fill="x", padx=24, pady=(0, 6))
+        self._progress.pack_forget()
 
     # ── Identify ──────────────────────────────────────────────────────────
     def _build_identify(self, f: ctk.CTkFrame) -> None:
@@ -147,7 +151,7 @@ class PASPage(ctk.CTkFrame):
                      font=ctk.CTkFont(size=11)).pack(side="left")
         r += 1
 
-        btn = self._run_button(f, "▶  Identify Hashes", r, self._run_identify)
+        btn = self._run_button(f, "Identify Hashes", r, self._run_identify)
         self._run_btns.append(btn)
 
     # ── Crack ─────────────────────────────────────────────────────────────
@@ -191,7 +195,7 @@ class PASPage(ctk.CTkFrame):
                         variable=self._crack_mutate).grid(
             row=r, column=0, columnspan=2, sticky="w", pady=8); r += 1
 
-        btn = self._run_button(f, "▶  Start Cracking", r, self._run_crack)
+        btn = self._run_button(f, "Start Cracking", r, self._run_crack)
         self._run_btns.append(btn)
 
     # ── Score ─────────────────────────────────────────────────────────────
@@ -232,7 +236,7 @@ class PASPage(ctk.CTkFrame):
                         variable=self._score_block).grid(
             row=r, column=0, columnspan=2, sticky="w", pady=8); r += 1
 
-        btn = self._run_button(f, "▶  Score Passwords", r, self._run_score)
+        btn = self._run_button(f, "Score Passwords", r, self._run_score)
         self._run_btns.append(btn)
 
     # ── Breach ────────────────────────────────────────────────────────────
@@ -255,12 +259,12 @@ class PASPage(ctk.CTkFrame):
         note = ctk.CTkFrame(f, fg_color="#1c2128", corner_radius=6)
         note.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(4, 12))
         ctk.CTkLabel(note,
-                     text="🔒  k-Anonymity: only the first 5 hex chars of each hash are sent to HIBP.\n"
+                     text="k-Anonymity: only the first 5 hex chars of each hash are sent to HIBP.\n"
                           "    Your full password or hash never leaves your machine.",
                      text_color="#58a6ff", font=ctk.CTkFont(size=11),
                      justify="left", anchor="w").pack(padx=12, pady=8, anchor="w"); r += 1
 
-        btn = self._run_button(f, "▶  Check HIBP Breaches", r, self._run_breach)
+        btn = self._run_button(f, "Check HIBP Breaches", r, self._run_breach)
         self._run_btns.append(btn)
 
     # ── Mutate ────────────────────────────────────────────────────────────
@@ -299,7 +303,7 @@ class PASPage(ctk.CTkFrame):
             ctk.CTkEntry(f, textvariable=var, width=90).grid(row=r, column=1, sticky="w", pady=8)
             r += 1
 
-        btn = self._run_button(f, "▶  Generate Mutations", r, self._run_mutate)
+        btn = self._run_button(f, "Generate Mutations", r, self._run_mutate)
         self._run_btns.append(btn)
 
     # ── Audit ─────────────────────────────────────────────────────────────
@@ -341,7 +345,7 @@ class PASPage(ctk.CTkFrame):
                         variable=self._audit_mutate).pack(side="left")
         r += 1
 
-        btn = self._run_button(f, "▶  Run Full Audit", r, self._run_audit)
+        btn = self._run_button(f, "Run Full Audit", r, self._run_audit)
         self._run_btns.append(btn)
 
     # ── Shared helpers ────────────────────────────────────────────────────
@@ -365,8 +369,8 @@ class PASPage(ctk.CTkFrame):
         return [l.strip() for l in box.get("1.0", "end").splitlines() if l.strip()]
 
     def _reset_btns(self) -> None:
-        labels = ["▶  Identify Hashes", "▶  Start Cracking", "▶  Score Passwords",
-                  "▶  Check HIBP Breaches", "▶  Generate Mutations", "▶  Run Full Audit"]
+        labels = ["Identify Hashes", "Start Cracking", "Score Passwords",
+                  "Check HIBP Breaches", "Generate Mutations", "Run Full Audit"]
         for btn, label in zip(self._run_btns, labels):
             btn.configure(text=label, fg_color="#238636", hover_color="#2ea043")
 
@@ -389,12 +393,15 @@ class PASPage(ctk.CTkFrame):
                 return e.code if isinstance(e.code, int) else 0
 
         for btn in self._run_btns:
-            btn.configure(text="⏹  Stop", fg_color="#da3633", hover_color="#b91c1c")
+            btn.configure(text="Stop", fg_color="#da3633", hover_color="#b91c1c")
 
-        self._output_cb(f"\n{'='*60}\n▶ pas {' '.join(args)}\n{'='*60}\n")
+        self._progress.pack(fill="x", padx=24, pady=(0, 6))
+        self._progress.start()
+        self._output_cb(f"\n{'='*60}\nPAS  {' '.join(args)}\n{'='*60}\n")
 
         def on_done(code: int) -> None:
             self.after(0, self._reset_btns)
+            self.after(0, lambda: (self._progress.stop(), self._progress.pack_forget()))
             self._output_cb(f"\n[Done — exit code {code}]\n")
 
         self._runner.run(run_pas, done_cb=on_done,

@@ -73,7 +73,7 @@ class NIDSPage(ctk.CTkFrame):
         # ── Header ──────────────────────────────────────────────────────
         hdr = ctk.CTkFrame(self, fg_color="transparent")
         hdr.pack(fill="x", padx=24, pady=(24, 4))
-        ctk.CTkLabel(hdr, text="🌐  Network Intrusion Detection System",
+        ctk.CTkLabel(hdr, text="Network Intrusion Detection System",
                      font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w")
         ctk.CTkLabel(hdr,
                      text="Real-time packet capture  ·  PCAP replay  ·  6 attack detectors  ·  SIEM export",
@@ -117,7 +117,7 @@ class NIDSPage(ctk.CTkFrame):
         self._iface_var = ctk.StringVar()
         self._iface_cb = ctk.CTkComboBox(self._iface_row, variable=self._iface_var, values=[""])
         self._iface_cb.grid(row=0, column=0, sticky="ew")
-        ctk.CTkButton(self._iface_row, text="↺ Refresh", width=90,
+        ctk.CTkButton(self._iface_row, text="Refresh", width=90,
                       command=self._refresh_ifaces).grid(row=0, column=1, padx=(8, 0))
         row += 1
 
@@ -178,7 +178,7 @@ class NIDSPage(ctk.CTkFrame):
         note = ctk.CTkFrame(opts, fg_color="#1c2128", corner_radius=6)
         note.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(4, 8))
         ctk.CTkLabel(note,
-                     text="⚠  Live capture requires Npcap (Windows) or root / cap_net_raw+ep (Linux).",
+                     text="[!]  Live capture requires Npcap (Windows) or root / cap_net_raw+ep (Linux).",
                      text_color="#d29922", font=ctk.CTkFont(size=11), anchor="w").pack(
             padx=12, pady=6, anchor="w")
 
@@ -186,7 +186,7 @@ class NIDSPage(ctk.CTkFrame):
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(fill="x", padx=24, pady=12)
         self._run_btn = ctk.CTkButton(
-            btn_frame, text="▶  Run NIDS",
+            btn_frame, text="Run NIDS",
             font=ctk.CTkFont(size=14, weight="bold"),
             fg_color="#238636", hover_color="#2ea043",
             height=42, command=self._run,
@@ -249,17 +249,17 @@ class NIDSPage(ctk.CTkFrame):
 
         mode = self._mode_var.get()
 
-        self._run_btn.configure(text="⏹  Stop NIDS", fg_color="#da3633", hover_color="#b91c1c")
+        self._run_btn.configure(text="Stop NIDS", fg_color="#da3633", hover_color="#b91c1c")
 
         def on_done(code: int) -> None:
             self.after(0, lambda: self._run_btn.configure(
-                text="▶  Run NIDS", fg_color="#238636", hover_color="#2ea043"))
+                text="Run NIDS", fg_color="#238636", hover_color="#2ea043"))
             self._output_cb(f"\n[Finished — exit code {code}]\n")
 
         # ── Generate Test PCAP — special path (no sys.argv needed) ──────
         if mode == "Generate Test PCAP":
             self._output_cb(
-                f"\n{'='*60}\n▶ NIDS  [Generate Test PCAP + Replay]\n{'='*60}\n")
+                f"\n{'='*60}\nNIDS  [Generate Test PCAP + Replay]\n{'='*60}\n")
 
             def run_gen_pcap() -> int:
                 nids_str = str(NIDS_DIR)
@@ -291,7 +291,7 @@ class NIDSPage(ctk.CTkFrame):
         old_argv = sys.argv
 
         self._output_cb(
-            f"\n{'='*60}\n▶ NIDS  [{' '.join(argv[1:])}]\n{'='*60}\n")
+            f"\n{'='*60}\nNIDS  [{' '.join(argv[1:])}]\n{'='*60}\n")
 
         def run_nids() -> int:
             sys.argv = argv

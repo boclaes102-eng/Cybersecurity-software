@@ -23,24 +23,30 @@ from .pages.home_page import HomePage
 from .pages.nids_page import NIDSPage
 from .pages.pas_page  import PASPage
 from .pages.sma_page  import SMAPage
+from .pages.wat_page  import WATPage
+from .pages.pgn_page  import PGNPage
+from .pages.ceh_page  import CEHPage
 from .utils.runner import ToolRunner
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 _NAV = [
-    ("🏠  Home",   "home"),
-    ("🌐  NIDS",   "nids"),
-    ("🔑  PAS",    "pas"),
-    ("🦠  SMA",    "sma"),
+    ("Home",  "home"),
+    ("NIDS",  "nids"),
+    ("PAS",   "pas"),
+    ("SMA",   "sma"),
+    ("WAT",   "wat"),
+    ("PGN",   "pgn"),
+    ("CEH",   "ceh"),
 ]
 
 # Output-line colour classification
 _TAG_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("error",   ("[error]", "error:", "traceback", "exception:", "[stopped")),
     ("warning", ("[warning]", "warning:", "warn:")),
-    ("success", ("[finished", "analysis complete", "done]", "clean", "✓")),
-    ("info",    ("=" * 10, "▶", "starting")),
+    ("success", ("[finished", "analysis complete", "done]", "clean")),
+    ("info",    ("=" * 10, "starting")),
 ]
 
 
@@ -76,7 +82,6 @@ class App(ctk.CTk):
         # Logo
         logo = ctk.CTkFrame(sidebar, fg_color="transparent")
         logo.grid(row=0, column=0, padx=16, pady=(24, 8), sticky="ew")
-        ctk.CTkLabel(logo, text="🛡", font=ctk.CTkFont(size=40)).pack(anchor="w")
         ctk.CTkLabel(logo, text="CyberSuite",
                      font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w")
         ctk.CTkLabel(logo, text="Pro Edition",
@@ -111,7 +116,7 @@ class App(ctk.CTk):
         # Status indicator
         status_frame = ctk.CTkFrame(sidebar, fg_color="#0d1117", corner_radius=8)
         status_frame.grid(row=4, column=0, padx=12, pady=8, sticky="ew")
-        self._status_dot  = ctk.CTkLabel(status_frame, text="●", text_color="#3fb950",
+        self._status_dot  = ctk.CTkLabel(status_frame, text="",
                                           font=ctk.CTkFont(size=10))
         self._status_dot.pack(side="left", padx=(10, 4), pady=8)
         self._status_text = ctk.CTkLabel(status_frame, text="Ready",
@@ -145,7 +150,7 @@ class App(ctk.CTk):
         toolbar.grid(row=0, column=0, sticky="ew")
         toolbar.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(toolbar, text="  ⬛ Output Console",
+        ctk.CTkLabel(toolbar, text="  Output Console",
                      font=ctk.CTkFont(size=12, weight="bold"),
                      text_color="#58a6ff").grid(row=0, column=0, sticky="w", padx=4)
 
@@ -156,10 +161,13 @@ class App(ctk.CTk):
                      text_color="#484f58", font=ctk.CTkFont(size=10)).pack(
             side="left", padx=(0, 12), pady=8)
 
+        ctk.CTkButton(btn_row, text="Copy", width=70, height=26,
+                      fg_color="#21262d", hover_color="#30363d",
+                      command=self._copy_console).pack(side="left", padx=4, pady=5)
         ctk.CTkButton(btn_row, text="Clear", width=70, height=26,
                       fg_color="#21262d", hover_color="#30363d",
                       command=self.clear_console).pack(side="left", padx=4, pady=5)
-        ctk.CTkButton(btn_row, text="⏹ Stop", width=80, height=26,
+        ctk.CTkButton(btn_row, text="Stop", width=80, height=26,
                       fg_color="#da3633", hover_color="#b91c1c",
                       command=self._stop_tool).pack(side="left", padx=(0, 4), pady=5)
 
@@ -190,6 +198,9 @@ class App(ctk.CTk):
         self._pages["nids"] = NIDSPage(self._page_container, self._runner, out)
         self._pages["pas"]  = PASPage (self._page_container, self._runner, out)
         self._pages["sma"]  = SMAPage (self._page_container, self._runner, out)
+        self._pages["wat"]  = WATPage (self._page_container, self._runner, out)
+        self._pages["pgn"]  = PGNPage (self._page_container, self._runner, out)
+        self._pages["ceh"]  = CEHPage (self._page_container, self._runner, out)
 
     # ──────────────────────────────────────────────────────────────────────
     def _navigate(self, key: str) -> None:
@@ -233,6 +244,11 @@ class App(ctk.CTk):
         return ""
 
     # ──────────────────────────────────────────────────────────────────────
+    def _copy_console(self) -> None:
+        text = self._tw.get("1.0", "end")
+        self.clipboard_clear()
+        self.clipboard_append(text)
+
     def clear_console(self) -> None:
         self._tw.configure(state="normal")
         self._tw.delete("1.0", "end")
