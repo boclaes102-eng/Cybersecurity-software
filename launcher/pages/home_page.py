@@ -21,6 +21,42 @@ _TOOLS = [
         "deps": [],
     },
     {
+        "key": "msf",
+        "short": "MSF",
+        "title": "Metasploit Bridge",
+        "desc": (
+            "CVE → module → exploitation:\n"
+            "Search modules or pick from CVE map\n"
+            "Pre-fills RHOST/LHOST/payload\n\n"
+            "Launches msfconsole in a new window."
+        ),
+        "deps": [],
+    },
+    {
+        "key": "wifi",
+        "short": "WiFi",
+        "title": "WiFi Recon & Attack",
+        "desc": (
+            "Survey nearby networks (netsh)\n"
+            "WPA2 handshake capture (airodump-ng)\n"
+            "Deauthentication attack (aireplay-ng)\n\n"
+            "Export capture to PAS for cracking."
+        ),
+        "deps": [],
+    },
+    {
+        "key": "ad",
+        "short": "AD",
+        "title": "AD Enumeration",
+        "desc": (
+            "Active Directory attack surface:\n"
+            "Kerberoastable · AS-REP Roastable\n"
+            "Unconstrained delegation · Stale accounts\n\n"
+            "Exports findings directly to Report Generator."
+        ),
+        "deps": ["ldap3"],
+    },
+    {
         "key": "creds",
         "short": "CRED",
         "title": "Credential Harvester",

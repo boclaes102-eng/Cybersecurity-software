@@ -31,6 +31,9 @@ from .pages.netmap_page import NetMapPage
 from .pages.mitm_page    import MITMPage
 from .pages.report_page  import ReportPage
 from .pages.creds_page   import CredsPage
+from .pages.msf_page     import MSFPage
+from .pages.wifi_page    import WiFiPage
+from .pages.ad_page      import ADPage
 from .utils.runner import ToolRunner
 
 ctk.set_appearance_mode("dark")
@@ -42,6 +45,9 @@ _NAV = [
     ("NetMap",  "netmap"),
     ("MITM",    "mitm"),
     ("Creds",   "creds"),
+    ("MSF",     "msf"),
+    ("WiFi",    "wifi"),
+    ("AD",      "ad"),
     ("NIDS",    "nids"),
     ("PAS",     "pas"),
     ("SMA",     "sma"),
@@ -210,6 +216,9 @@ class App(ctk.CTk):
         self._pages["netmap"] = NetMapPage(self._page_container, self._runner, out)
         self._pages["mitm"]   = MITMPage  (self._page_container, self._runner, out)
         self._pages["creds"]  = CredsPage (self._page_container, self._runner, out)
+        self._pages["msf"]    = MSFPage   (self._page_container, self._runner, out)
+        self._pages["wifi"]   = WiFiPage  (self._page_container, self._runner, out)
+        self._pages["ad"]     = ADPage    (self._page_container, self._runner, out)
         self._pages["nids"]   = NIDSPage (self._page_container, self._runner, out)
         self._pages["pas"]  = PASPage (self._page_container, self._runner, out)
         self._pages["sma"]  = SMAPage (self._page_container, self._runner, out)
