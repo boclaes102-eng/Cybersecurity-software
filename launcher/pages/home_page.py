@@ -9,6 +9,18 @@ from ..utils.paths import NIDS_DIR, PAS_DIR, SMA_DIR, WAT_DIR, PGN_DIR, CEH_DIR
 
 _TOOLS = [
     {
+        "key": "report",
+        "short": "RPT",
+        "title": "Report Generator",
+        "desc": (
+            "Professional pentest report builder:\n"
+            "Add findings with severity · evidence · remediation\n"
+            "Auto-import from NetMap scan results\n\n"
+            "Generates styled HTML → print to PDF."
+        ),
+        "deps": [],
+    },
+    {
         "key": "mitm",
         "short": "MITM",
         "title": "ARP Spoof / MITM",

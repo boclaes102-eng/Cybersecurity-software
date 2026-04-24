@@ -28,7 +28,8 @@ from .pages.pgn_page    import PGNPage
 from .pages.ceh_page    import CEHPage
 from .pages.recon_page  import ReconPage
 from .pages.netmap_page import NetMapPage
-from .pages.mitm_page   import MITMPage
+from .pages.mitm_page    import MITMPage
+from .pages.report_page  import ReportPage
 from .utils.runner import ToolRunner
 
 ctk.set_appearance_mode("dark")
@@ -45,6 +46,7 @@ _NAV = [
     ("WAT",     "wat"),
     ("PGN",     "pgn"),
     ("CEH",     "ceh"),
+    ("Report",  "report"),
 ]
 
 # Output-line colour classification
@@ -210,7 +212,8 @@ class App(ctk.CTk):
         self._pages["sma"]  = SMAPage (self._page_container, self._runner, out)
         self._pages["wat"]  = WATPage (self._page_container, self._runner, out)
         self._pages["pgn"]  = PGNPage (self._page_container, self._runner, out)
-        self._pages["ceh"]  = CEHPage (self._page_container, self._runner, out)
+        self._pages["ceh"]    = CEHPage   (self._page_container, self._runner, out)
+        self._pages["report"] = ReportPage(self._page_container, self._runner, out)
 
     # ──────────────────────────────────────────────────────────────────────
     def _navigate(self, key: str) -> None:
