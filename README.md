@@ -1,20 +1,10 @@
 # CyberSuite Pro
 
-**A unified GUI launcher for professional security tooling — and the desktop attack layer of a three-platform cybersecurity ecosystem.**
+**The desktop attack layer of a three-platform cybersecurity ecosystem — 15 integrated security modules in one dark-themed GUI launcher.**
 
-CyberSuite Pro integrates six security tools into a single dark-themed CustomTkinter application: Network Intrusion Detection, Password Auditing, Static Malware Analysis, Web App Testing, Payload Generation, and Custom Exploit Helper. A new **Recon Workspace** page connects the desktop app to a shared PostgreSQL backend, so recon results gathered in the web dashboard can be loaded directly into the attack tools with one click — or entered manually when offline.
-
-![CyberSuite Pro launcher](assets/11.04.2026_21.15.18_REC.png)
+CyberSuite Pro is a professional penetration testing toolkit built in Python and CustomTkinter. It covers the full offensive workflow: network discovery, MITM attacks, credential harvesting, exploitation, Active Directory enumeration, and professional report generation — all from one application that requests UAC admin elevation automatically on launch.
 
 **Web Dashboard:** [Online-Cyber-Dashboard](https://github.com/boclaes102-eng/Online-Cyber-dashboard) &nbsp;·&nbsp; **Backend API:** [Threat Intel Platform](https://github.com/boclaes102-eng/threat-intel-platform)
-
----
-
-## What Makes This Special
-
-Most GUI wrappers around CLI tools are shallow shims — they call `subprocess.run` and display stdout in a text box. CyberSuite does something more interesting: the tools run **in-process** in daemon threads, stdout is intercepted per-thread without touching the tool's source code, argparse-based tools have their `sys.argv` surgically replaced for the duration of the call, and the stop mechanism injects `KeyboardInterrupt` at the C level via `ctypes.PyThreadState_SetAsyncExc`.
-
-The Recon Workspace is what makes this genuinely novel: it is the **desktop client** of a three-platform security pipeline, pulling recon data from a production PostgreSQL backend running on Railway and making it immediately available as pre-filled target inputs for the attack tools.
 
 ---
 
@@ -24,7 +14,7 @@ The Recon Workspace is what makes this genuinely novel: it is the **desktop clie
 ┌──────────────────────────────────────────────────────────────────────┐
 │                  CyberOps Dashboard  (Next.js · Vercel)              │
 │                                                                       │
-│   Operator runs 50+ recon tools: IP lookup, subdomain enum,          │
+│   Operator runs 56 recon tools: IP lookup, subdomain enum,           │
 │   SSL inspection, port scan, IOC enrichment, etc.                    │
 │   ↓  clicks "Save to Workspace" on any result                        │
 └───────────────────────────────┬──────────────────────────────────────┘
@@ -34,7 +24,7 @@ The Recon Workspace is what makes this genuinely novel: it is the **desktop clie
 │              Threat Intel Platform  (Fastify · Railway)              │
 │                                                                       │
 │   recon_sessions table stores: tool · target · summary · full JSON   │
-│   Also runs: CVE feed sync · IOC enrichment · asset monitoring       │
+│   Background workers: CVE feed · IOC enrichment · SIEM correlation   │
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │ X-API-Key (from ~/.cybersuite/config.json)
                                 ▼
@@ -42,64 +32,81 @@ The Recon Workspace is what makes this genuinely novel: it is the **desktop clie
 │              CyberSuite Pro  (this repo · Python · Windows)          │
 │                                                                       │
 │   Recon page → fetches sessions → one click → active target set      │
-│   Target copied to clipboard → paste into WAT / PGN / CEH / NIDS    │
-│   Offline fallback: manual target entry, no internet required        │
+│   NetMap → MITM → Creds → MSF: complete recon-to-exploitation chain  │
+│   AD Enumeration → Report Generator: findings delivered to client    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-The config is stored at `~/.cybersuite/config.json` — API URL and key are set once, never hardcoded in source.
+---
+
+## Modules
+
+### Network & Discovery
+| Module | What it does |
+|---|---|
+| **Network Map** | Phase 1: ARP scan via Scapy — live hosts, MAC, hostname. Phase 2: nmap deep scan — OS fingerprint, open ports with service versions, MAC vendor. Phase 3: SNMP router ARP table query to reveal offline devices. Interactive 2D canvas with draggable nodes, colour-coded by OS and risk level (red ring = high-risk port open). Click any node → Set as Target → pre-fills all attack tools. |
+| **NIDS** | Real-time packet capture with 6 attack detectors: Port Scan, SYN Flood, DNS Tunneling, ARP Poisoning, ICMP Amplification, Statistical Anomaly. Live interface or PCAP replay. |
+| **WiFi Recon** | Survey nearby networks (netsh, no monitor mode needed). WPA2 handshake capture via airodump-ng + deauth attack via aireplay-ng. Export capture for hashcat cracking. |
+
+### Attack
+| Module | What it does |
+|---|---|
+| **MITM / ARP Spoof** | MAC changer (Windows registry + adapter restart, random or custom). Bidirectional ARP poisoning via Scapy — tells target that gateway is at your MAC and vice versa. IP forwarding keeps both sides connected and unaware. |
+| **SSL Interceptor** | mitmproxy launched in transparent mode. Automatic port 80/443 redirect via `netsh portproxy`. Web UI opens at localhost:8081 — full request/response inspection live. CA cert path copied to clipboard for silent HTTPS interception. |
+| **Credential Harvester** | Scapy packet sniffer extracts credentials from HTTP POST forms, Basic Auth headers, and NTLM authenticate messages. Live table with raw packet detail panel. One-click export to hashcat-ready format (`hashcat -m 5600`). |
+| **Metasploit Bridge** | Built-in CVE → module map (EternalBlue, BlueKeep, PrintNightmare, Log4Shell, ZeroLogon, etc.). Search Metasploit modules from the GUI. Pre-fills RHOST, RPORT, LHOST, LPORT, and payload — launches msfconsole in a new window with `use module; set options; show options` pre-executed. |
+| **Payload Generator** | Reverse shells, bind shells, web shells. Encoder (base64 / URL / hex / PowerShell). Built-in TCP listener. |
+
+### Post-Exploitation & Analysis
+| Module | What it does |
+|---|---|
+| **AD Enumeration** | Pure-Python LDAP via ldap3 — no domain join required. Enumerates: Kerberoastable accounts (SPNs set), AS-REP roastable (no pre-auth), unconstrained delegation computers, password-not-required accounts, stale accounts (90+ days inactive), Domain Admins members. One click exports all findings directly into the Report Generator. |
+| **Password Auditing** | Hash identification, offline cracking, entropy scoring, HIBP k-anonymity breach check, wordlist mutation. |
+| **Static Malware Analyzer** | PE/ELF binary analysis without execution. Shannon entropy per section, 18 MITRE ATT&CK behavioral rules, YARA scanning, VirusTotal v3 lookup. |
+| **Web App Tester** | Directory brute-force, header security audit, SQLi detection, reflected XSS detection. Multi-threaded. |
+| **CVE & Exploit Helper** | NVD API v2 CVE search, ExploitDB lookup, results by CVSS score. |
+
+### Reporting & Workspace
+| Module | What it does |
+|---|---|
+| **Report Generator** | Persistent findings tracker (severity, category, host, CVSS, description, evidence, remediation). Auto-imports high-risk hosts from the last NetMap scan. Generates a professional styled HTML report with executive summary, risk bar, findings table, and per-finding evidence blocks. Print to PDF from the browser. Findings persist between sessions in `~/.cybersuite/findings.json`. |
+| **Recon Workspace** | Fetches saved recon sessions from the Threat Intel Platform backend. One click sets active target across all tools. Full offline fallback with manual entry. |
 
 ---
 
-## Tools
-
-| Page | Tool | What it does |
-|---|---|---|
-| **Recon** | Recon Workspace | Fetch saved dashboard recon sessions from the backend. Set active target with one click. Full offline fallback with manual input. Settings tab for API config. |
-| **NIDS** | Network Intrusion Detection System | Real-time packet capture with 6 attack detectors: Port Scan, SYN Flood, DNS Tunneling, ARP Poisoning, ICMP Amplification, Statistical Anomaly. Live interface capture or PCAP replay. SIEM export. |
-| **PAS** | Password Auditing Suite | Hash identification, offline cracking, entropy scoring, HIBP k-anonymity breach check, wordlist mutation, full audit pipeline. |
-| **SMA** | Static Malware Analyzer | PE/ELF binary analysis without execution. Shannon entropy, 18 MITRE ATT&CK behavioral rules, YARA scanning, VirusTotal v3 lookup, JSON report. |
-| **WAT** | Web App Tester | Web application security testing — target loaded from Recon Workspace. |
-| **PGN** | Payload Generator | Reverse shells, bind shells, web shells, encoders, and TCP listener. 10+ languages. |
-| **CEH** | Custom Exploit Helper | Custom exploit workflow tooling. |
-
----
-
-## Architecture Decisions
+## What Makes This Special
 
 ### Tools run in-process, not as subprocesses
 
-Each tool is loaded at runtime via `importlib.util.spec_from_file_location()` into the same Python interpreter — no child process, no subprocess pipes, no path juggling. The trade-off (a tool crash can affect the launcher) is mitigated by running every tool in a daemon `threading.Thread` with a `try/except` wrapper.
+Each tool is loaded at runtime via `importlib.util.spec_from_file_location()` — no child process, no subprocess pipes. The trade-off (a tool crash affects the launcher) is mitigated by running every tool in a daemon `threading.Thread` with a `try/except` wrapper.
 
 ### Thread-aware stdout interceptor
 
-All six tools print to `sys.stdout`. Rather than patching every `print()` call inside each tool, `launcher/utils/writer.py` wraps `sys.stdout` with a custom `_Writer` class that uses `threading.local()`. Each worker thread carries its own GUI callback; the main thread and all other threads fall through to the original stream untouched. **Zero changes were needed to any tool's source code.**
-
-### `sys.argv` surgery for argparse tools
-
-NIDS and SMA use `argparse`. The launcher saves `sys.argv`, replaces it with the constructed argument list, calls `mod.main()`, then restores `sys.argv` in a `finally` block. PAS uses Click — invoked programmatically via `mod.cli.main(args, standalone_mode=False)` with no `sys.argv` manipulation.
+`launcher/utils/writer.py` wraps `sys.stdout` with a `threading.local()` based `_Writer`. Each worker thread carries its own GUI callback; the main thread falls through to the original stream. **Zero changes to any tool's source code.**
 
 ### Two-layer stop mechanism
 
-Background threads are stopped by first setting a `stop_event` (cooperative — the tool checks it at checkpoints), then injecting `KeyboardInterrupt` via `ctypes.PyThreadState_SetAsyncExc` as a fallback (pre-emptive — works as long as the thread is in Python bytecode, not a blocking C call). This is why the NIDS "Interactive Menu" mode was removed: `input()` is a blocking C call that ignores the interrupt. The GUI surfaces all options as form fields instead.
+1. Set `stop_event` (cooperative — tool checks at checkpoints)
+2. Inject `KeyboardInterrupt` via `ctypes.PyThreadState_SetAsyncExc` (pre-emptive fallback)
 
-### Recon Workspace — online/offline architecture
+### Auto UAC elevation
 
-The Recon page makes a single `urllib.request` call to the backend with a 10-second timeout. If it fails for any reason (no internet, backend down, missing config), the Offline tab is always available and fully functional — the operator types the target manually. The config file (`~/.cybersuite/config.json`) is written by the Settings tab and read at fetch time, so credentials are never in source code.
+`launcher/main.py` checks `ctypes.windll.shell32.IsUserAnAdmin()` at startup. If not admin, re-launches itself via `ShellExecuteW("runas", ...)` — the UAC prompt appears automatically. Works for both the Python script and the compiled `.exe`.
 
-### Headless test suite
+### Shared palette and UI helpers
 
-The launcher's GUI classes are tested without a display by stubbing `customtkinter` in `sys.modules` before any import. Widget stubs must be real Python classes (not `MagicMock`) because page classes inherit from `ctk.CTkFrame` — `MagicMock`'s metaclass conflicts with normal class creation. 147 tests cover the thread runner, stdout interceptor, path resolution, every `_build_argv` mode/flag combination, tag classification, and integration smoke tests.
+`launcher/utils/colors.py` — single shared colour palette imported by all pages.
+`launcher/utils/ui.py` — shared component builders (`card()`, `btn_primary()`, `btn_ghost()`, `toolbar()`, etc.) — new modules are built in a third of the code.
 
 ---
 
 ## Quick Start
 
-Requires **Python 3.11+** on PATH.
+Requires **Python 3.11+** on PATH and **Npcap** for packet capture tools.
 
 ```bat
-setup.bat          # create .venv + install dependencies (first run only)
-run.bat            # launch the GUI
+setup.bat    # create .venv, install all dependencies (first run only)
+run.bat      # launch GUI — UAC prompt appears automatically
 ```
 
 ### Build a standalone `.exe`
@@ -107,7 +114,7 @@ run.bat            # launch the GUI
 ```bat
 .venv\Scripts\activate
 python build.py
-# → dist/CyberSuite.exe   (portable, no Python needed on target machine)
+# → dist/CyberSuite.exe  (portable, no Python needed on target)
 ```
 
 ---
@@ -117,22 +124,7 @@ python build.py
 | Shortcut | Action |
 |---|---|
 | `Ctrl+L` | Clear output console |
-| `Escape` | Stop the running tool |
-
----
-
-## Connecting to the Backend
-
-On first launch, go to **Recon → Settings** and enter:
-
-| Field | Value |
-|---|---|
-| Backend API URL | Your Railway deployment URL |
-| API Key | The `tip_…` key from the Threat Intel Platform |
-
-Settings are saved to `~/.cybersuite/config.json`. After saving, click **Fetch Sessions** in the Workspace tab to load your saved dashboard recon runs.
-
-If the backend is unreachable, switch to the **Manual (Offline)** tab and enter the target directly.
+| `Escape` | Stop running tool |
 
 ---
 
@@ -141,29 +133,37 @@ If the backend is unreachable, switch to the **Manual (Offline)** tab and enter 
 ```
 CyberSuite/
 ├── launcher/
-│   ├── main.py                   Entry point
-│   ├── app.py                    Main window (sidebar, console, nav)
+│   ├── main.py               Entry point + UAC auto-elevation
+│   ├── app.py                Main window — grouped sidebar, console, nav
 │   ├── pages/
-│   │   ├── home_page.py          Dashboard overview
-│   │   ├── recon_page.py         ← new: Recon Workspace (online + offline)
-│   │   ├── nids_page.py          Network Intrusion Detection
-│   │   ├── pas_page.py           Password Auditing Suite
-│   │   ├── sma_page.py           Static Malware Analyzer
-│   │   ├── wat_page.py           Web App Tester
-│   │   ├── pgn_page.py           Payload Generator
-│   │   └── ceh_page.py           Custom Exploit Helper
+│   │   ├── home_page.py      Dashboard overview (all 15 modules)
+│   │   ├── recon_page.py     Recon Workspace (online + offline)
+│   │   ├── netmap_page.py    Network Map (ARP + nmap + SNMP)
+│   │   ├── mitm_page.py      MAC Changer + ARP Spoof + mitmproxy
+│   │   ├── creds_page.py     Credential Harvester
+│   │   ├── msf_page.py       Metasploit Bridge
+│   │   ├── wifi_page.py      WiFi Recon & Attack
+│   │   ├── ad_page.py        Active Directory Enumeration
+│   │   ├── report_page.py    Pentest Report Generator
+│   │   ├── nids_page.py      Network Intrusion Detection
+│   │   ├── pas_page.py       Password Auditing Suite
+│   │   ├── sma_page.py       Static Malware Analyzer
+│   │   ├── wat_page.py       Web App Tester
+│   │   ├── pgn_page.py       Payload Generator
+│   │   └── ceh_page.py       CVE & Exploit Helper
 │   └── utils/
-│       ├── runner.py             Thread runner + two-layer stop mechanism
-│       ├── writer.py             Thread-aware stdout interceptor
-│       └── paths.py              Tool directory resolution
+│       ├── colors.py         Shared colour palette
+│       ├── ui.py             Shared UI component helpers
+│       ├── runner.py         Thread runner + two-layer stop
+│       ├── writer.py         Thread-aware stdout interceptor
+│       └── paths.py          Tool directory resolution
 ├── Network-Intrusion-Detection-System/
 ├── Password-Auditing-Suite/
 ├── Static-Malware-Analyzer/
-├── Web-App-Tester/
+├── Web-Application-Tester/
 ├── Payload-Generator/
-├── Custom-Exploit-Helper/
-├── tests/                        147 pytest tests (headless)
-├── assets/                       Screenshots
+├── CVE-Exploit-Helper/
+├── tests/                    pytest test suite (headless)
 ├── requirements_launcher.txt
 ├── setup.bat
 ├── run.bat
@@ -172,12 +172,21 @@ CyberSuite/
 
 ---
 
+## Dependencies
+
+Core: `customtkinter`, `scapy`, `rich`, `numpy`, `python-nmap`, `pysnmp`, `psutil`, `mitmproxy`, `ldap3`, `requests`, `pefile`, `pyelftools`, `passlib`, `click`
+
+Optional: `yara-python` (SMA YARA scanning), `aircrack-ng` suite (WiFi attacks), `metasploit-framework` (MSF Bridge)
+
+---
+
 ## Notes
 
-- **Live NIDS capture** requires [Npcap](https://npcap.com/) on Windows or `cap_net_raw` capability on Linux.
-- **VirusTotal lookups** (SMA) require a free API key from virustotal.com — set as `VT_API_KEY` env var or paste in the SMA page.
-- `yara-python` is optional — SMA gracefully skips YARA scanning if not installed.
-- The Recon Workspace works fully offline — backend connectivity is tested at fetch time with a 10-second timeout, not at startup.
+- **Packet capture (NIDS, NetMap ARP, Credential Harvester)** requires [Npcap](https://npcap.com/) on Windows.
+- **nmap OS detection** requires Administrator — the app requests this automatically.
+- **WiFi deauth / handshake capture** requires a WiFi adapter in monitor mode and the aircrack-ng suite.
+- **Metasploit Bridge** requires Metasploit Framework installed (`msfconsole` in PATH).
+- **VirusTotal** (SMA) requires a free API key from virustotal.com — set as `VT_API_KEY`.
 
 ---
 
