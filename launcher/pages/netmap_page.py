@@ -10,6 +10,7 @@ Clicking a node selects it as the active attack target
 """
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import math
@@ -41,6 +42,7 @@ _COL_LINUX   = "#16a34a"
 _COL_SELECT  = "#f0883e"
 _COL_DANGER  = "#dc2626"
 _COL_WARN    = "#d97706"
+_COL_OFFLINE = "#334155"   # SNMP-only hosts (not seen by ARP — offline)
 
 _R    = 20   # normal node radius
 _R_GW = 26   # gateway radius
@@ -250,6 +252,82 @@ def _nmap_enrich(hosts: list[dict], cb: Callable[[str], None],
     cb(f"\n[+] Enrichment complete — {enriched}/{len(hosts)} host(s) updated.\n")
 
 
+# ── Phase 3: SNMP router ARP table ───────────────────────────────────────────
+
+async def _snmp_walk_async(router_ip: str, community: str) -> list[tuple[str, object]]:
+    from pysnmp.hlapi.v3arch.asyncio import (  # type: ignore
+        SnmpEngine, CommunityData, UdpTransportTarget,
+        ContextData, ObjectType, ObjectIdentity, walk_cmd,
+    )
+    results: list[tuple[str, object]] = []
+    engine = SnmpEngine()
+    try:
+        async for err_ind, err_status, _, var_binds in walk_cmd(
+            engine,
+            CommunityData(community, mpModel=1),
+            UdpTransportTarget((router_ip, 161), timeout=3, retries=1),
+            ContextData(),
+            ObjectType(ObjectIdentity("1.3.6.1.2.1.4.22.1.2")),  # ipNetToMediaPhysAddress
+            lexicographicMode=False,
+        ):
+            if err_ind or err_status:
+                break
+            for oid, val in var_binds:
+                results.append((str(oid), val))
+    finally:
+        engine.close_dispatcher()
+    return results
+
+
+def _snmp_arp_table(router_ip: str, community: str,
+                    cb: Callable[[str], None]) -> list[dict]:
+    cb(f"[*] SNMP query → {router_ip}  community='{community}'\n")
+    try:
+        var_binds = asyncio.run(_snmp_walk_async(router_ip, community))
+    except ImportError:
+        cb("[ERROR] pysnmp not installed — run setup.bat.\n")
+        return []
+    except Exception as exc:
+        cb(f"[ERROR] SNMP: {exc}\n")
+        return []
+
+    if not var_binds:
+        cb("[!] No SNMP response — router may have SNMP disabled,\n"
+           "    or the community string is wrong.\n")
+        return []
+
+    hosts: list[dict] = []
+    for oid_str, mac_val in var_binds:
+        # OID: 1.3.6.1.2.1.4.22.1.2.<ifIndex>.<a>.<b>.<c>.<d>
+        parts = oid_str.split(".")
+        if len(parts) < 4:
+            continue
+        ip = ".".join(parts[-4:])
+        try:
+            raw = bytes(mac_val)
+            if len(raw) != 6:
+                continue
+            mac = ":".join(f"{b:02x}" for b in raw)
+            if ip == "0.0.0.0":
+                continue
+            hn = _reverse_dns(ip)
+            dev_type, color = _classify_arp(mac, hn)
+            hosts.append({
+                "ip": ip, "mac": mac, "hostname": hn,
+                "type": dev_type, "color": _COL_OFFLINE,
+                "os": "", "os_accuracy": 0,
+                "vendor": "", "ports": [], "risk": "",
+                "enriched": False, "online": False,
+                "_base_color": color,   # restored if host comes online
+            })
+            cb(f"  ↳  {ip:<16}  {mac}  {'(offline)' if True else ''}\n")
+        except Exception:
+            continue
+
+    cb(f"[+] SNMP returned {len(hosts)} ARP entr(ies).\n")
+    return hosts
+
+
 # ── Canvas ────────────────────────────────────────────────────────────────────
 
 class _NetCanvas(tk.Canvas):
@@ -301,7 +379,8 @@ class _NetCanvas(tk.Canvas):
                 x = cx + radius * math.cos(angle)
                 y = cy + radius * math.sin(angle)
 
-            node = {**host, "x": x, "y": y, "is_gw": is_gw, "is_self": is_self}
+            online = host.get("online", True)
+            node = {**host, "x": x, "y": y, "is_gw": is_gw, "is_self": is_self, "online": online}
             if is_gw:
                 self._gateway = node
             self._nodes.append(node)
@@ -334,12 +413,13 @@ class _NetCanvas(tk.Canvas):
             self._draw_node(node)
 
     def _draw_node(self, node: dict) -> None:
-        x, y  = node["x"], node["y"]
-        r     = _R_GW if node["is_gw"] else _R
-        sel   = node is self._selected
-        color = _COL_SELECT if sel else node["color"]
-        ol    = "#ffffff" if sel else _BORDER
-        lw    = 3         if sel else 1.5
+        x, y    = node["x"], node["y"]
+        r       = _R_GW if node["is_gw"] else _R
+        sel     = node is self._selected
+        offline = not node.get("online", True)
+        color   = _COL_SELECT if sel else node["color"]
+        ol      = "#ffffff" if sel else (_LO if offline else _BORDER)
+        lw      = 3         if sel else 1.5
 
         # Risk ring (drawn behind node)
         risk = node.get("risk", "")
@@ -353,9 +433,18 @@ class _NetCanvas(tk.Canvas):
         # Shadow
         self.create_oval(x-r+2, y-r+2, x+r+2, y+r+2,
                          fill="#000000", outline="", stipple="gray25")
-        # Circle
-        self.create_oval(x-r, y-r, x+r, y+r,
-                         fill=color, outline=ol, width=lw)
+        # Circle — dashed for offline nodes
+        if offline and not sel:
+            self.create_oval(x-r, y-r, x+r, y+r,
+                             fill=color, outline=ol, width=lw, dash=(4, 3))
+        else:
+            self.create_oval(x-r, y-r, x+r, y+r,
+                             fill=color, outline=ol, width=lw)
+
+        # Offline label inside node
+        if offline:
+            self.create_text(x, y, text="off", fill=_LO,
+                             font=("Consolas", 7))
 
         # Open-port count badge (bottom-right)
         open_ports = [p for p in node.get("ports", []) if p["state"] == "open"]
@@ -485,6 +574,47 @@ class NetMapPage(ctk.CTkFrame):
             tb, text=f"Local: {self._local_ip}",
             text_color=_LO, font=ctk.CTkFont(family="Consolas", size=11))
         self._status_lbl.pack(side="left", padx=8)
+
+        # SNMP row
+        tb2 = ctk.CTkFrame(self, fg_color=_SURFACE, corner_radius=8,
+                           border_width=1, border_color=_BORDER)
+        tb2.pack(fill="x", padx=24, pady=(0, 8))
+
+        ctk.CTkLabel(tb2, text="SNMP:", text_color=_LO,
+                     font=ctk.CTkFont(family="Consolas", size=12)
+                     ).pack(side="left", padx=(14, 4), pady=6)
+        ctk.CTkLabel(tb2, text="Router:", text_color=_LO,
+                     font=ctk.CTkFont(family="Consolas", size=11)
+                     ).pack(side="left", padx=(4, 2))
+
+        self._snmp_ip_var = ctk.StringVar(value=_default_subnet(self._local_ip).rsplit(".", 2)[0] + ".1")
+        ctk.CTkEntry(tb2, textvariable=self._snmp_ip_var, width=130,
+                     font=ctk.CTkFont(family="Consolas", size=12)
+                     ).pack(side="left", padx=4, pady=6)
+
+        ctk.CTkLabel(tb2, text="Community:", text_color=_LO,
+                     font=ctk.CTkFont(family="Consolas", size=11)
+                     ).pack(side="left", padx=(8, 2))
+
+        self._snmp_comm_var = ctk.StringVar(value="public")
+        ctk.CTkEntry(tb2, textvariable=self._snmp_comm_var, width=90,
+                     font=ctk.CTkFont(family="Consolas", size=12)
+                     ).pack(side="left", padx=4, pady=6)
+
+        self._snmp_btn = ctk.CTkButton(
+            tb2, text="Query Router ARP", width=150,
+            fg_color=_SURFACE, hover_color=_BORDER,
+            border_width=1, border_color=_CYAN,
+            text_color=_CYAN,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self._snmp_query,
+        )
+        self._snmp_btn.pack(side="left", padx=(10, 6), pady=6)
+
+        self._snmp_status = ctk.CTkLabel(
+            tb2, text="Query router SNMP ARP table to reveal offline devices",
+            text_color=_LO, font=ctk.CTkFont(family="Consolas", size=10))
+        self._snmp_status.pack(side="left", padx=8)
 
         # Legend
         legend = ctk.CTkFrame(tb, fg_color="transparent")
@@ -764,6 +894,57 @@ class NetMapPage(ctk.CTkFrame):
                          font=ctk.CTkFont(family="Consolas", size=10),
                          text_color=_LO, anchor="w"
                          ).pack(side="left", fill="x", expand=True)
+
+    # ── SNMP ──────────────────────────────────────────────────────────────────
+
+    def _snmp_query(self) -> None:
+        if self._runner.is_running:
+            self._out("[!] Wait for current scan to finish first.\n")
+            return
+
+        router_ip = self._snmp_ip_var.get().strip()
+        community = self._snmp_comm_var.get().strip() or "public"
+
+        self._snmp_btn.configure(text="Querying…", state="disabled")
+        self._snmp_status.configure(text="Querying router ARP table…")
+
+        def do() -> int:
+            # Try 'public', then the user-supplied string if different
+            communities = list(dict.fromkeys([community, "public", "private"]))
+            snmp_hosts: list[dict] = []
+            for comm in communities:
+                snmp_hosts = _snmp_arp_table(router_ip, comm, self._out)
+                if snmp_hosts:
+                    break
+            self.after(0, lambda h=snmp_hosts: self._merge_snmp(h))
+            return 0
+
+        def done(_code: int) -> None:
+            self.after(0, lambda: self._snmp_btn.configure(
+                text="Query Router ARP", state="normal"))
+
+        self._runner.run(do, done_cb=done,
+                         output_cb=self._out, tool_name="SNMP")
+
+    def _merge_snmp(self, snmp_hosts: list[dict]) -> None:
+        if not snmp_hosts:
+            self._snmp_status.configure(text="No SNMP data — SNMP may be disabled on router")
+            return
+
+        existing_ips = {h["ip"] for h in self._hosts}
+        new_hosts = [h for h in snmp_hosts if h["ip"] not in existing_ips]
+
+        if not new_hosts:
+            self._snmp_status.configure(
+                text=f"SNMP returned {len(snmp_hosts)} entr(ies) — all already on map")
+            return
+
+        self._hosts.extend(new_hosts)
+        self._canvas.load(self._hosts, self._local_ip)
+        self._build_host_list()
+        self._snmp_status.configure(
+            text=f"Added {len(new_hosts)} offline device(s) from router ARP table")
+        self._out(f"[+] {len(new_hosts)} new offline host(s) added to map.\n")
 
     # ── Actions ───────────────────────────────────────────────────────────────
 

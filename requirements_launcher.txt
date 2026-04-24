@@ -10,6 +10,7 @@ scapy>=2.5.0
 rich>=13.7.0
 numpy>=1.26.0
 python-nmap>=0.7.1
+pysnmp>=7.0.0
 
 # PAS — Password Auditing Suite
 click>=8.1
