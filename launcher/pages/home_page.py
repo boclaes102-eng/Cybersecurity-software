@@ -9,6 +9,18 @@ from ..utils.paths import NIDS_DIR, PAS_DIR, SMA_DIR, WAT_DIR, PGN_DIR, CEH_DIR
 
 _TOOLS = [
     {
+        "key": "mitm",
+        "short": "MITM",
+        "title": "ARP Spoof / MITM",
+        "desc": (
+            "MAC changer + ARP poisoning:\n"
+            "Change interface MAC (random or custom)\n"
+            "Bidirectional ARP spoof — target ↔ gateway\n\n"
+            "IP forwarding keeps both sides connected."
+        ),
+        "deps": ["scapy", "psutil"],
+    },
+    {
         "key": "netmap",
         "short": "NetMap",
         "title": "Network Map",
