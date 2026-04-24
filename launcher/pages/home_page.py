@@ -9,6 +9,18 @@ from ..utils.paths import NIDS_DIR, PAS_DIR, SMA_DIR, WAT_DIR, PGN_DIR, CEH_DIR
 
 _TOOLS = [
     {
+        "key": "netmap",
+        "short": "NetMap",
+        "title": "Network Map",
+        "desc": (
+            "Discover and visualize the local network:\n"
+            "ARP scan · 2-D interactive topology graph\n"
+            "Click any node to select it as attack target\n\n"
+            "Drag nodes · colour-coded device types · one-click target set."
+        ),
+        "deps": ["scapy"],
+    },
+    {
         "key": "nids",
         "short": "NIDS",
         "title": "Network Intrusion Detection",
@@ -121,7 +133,7 @@ class HomePage(ctk.CTkFrame):
         cards = ctk.CTkFrame(self, fg_color="transparent")
         cards.pack(fill="both", expand=True, padx=24, pady=0)
         cards.grid_columnconfigure((0, 1, 2), weight=1, uniform="card")
-        cards.grid_rowconfigure((0, 1), weight=1)
+        cards.grid_rowconfigure((0, 1, 2), weight=1)
 
         for idx, tool in enumerate(_TOOLS):
             row, col = divmod(idx, 3)

@@ -1,0 +1,519 @@
+"""
+Network Map — discover and visualize the local network topology.
+
+ARP-scans the local subnet, renders an interactive 2-D node graph on a
+tkinter Canvas, and lets the user click any node to select it as an
+attack target (written to ~/.cybersuite/config.json, same file the
+Recon Workspace reads).
+"""
+from __future__ import annotations
+
+import ipaddress
+import json
+import math
+import pathlib
+import socket
+import threading
+from typing import Callable, Optional
+
+import customtkinter as ctk
+import tkinter as tk
+
+# ── Colour palette (matches the rest of the app) ─────────────────────────────
+_BG      = "#0d1117"
+_SURFACE = "#161b22"
+_BORDER  = "#30363d"
+_HI      = "#c9d1d9"
+_LO      = "#8b949e"
+_CYAN    = "#58a6ff"
+_GREEN   = "#238636"
+_RED     = "#da3633"
+_ORANGE  = "#d97706"
+
+_COL_ROUTER  = "#1f6aa5"
+_COL_SELF    = "#4ade80"
+_COL_HOST    = "#238636"
+_COL_APPLE   = "#a78bfa"
+_COL_PHONE   = _ORANGE
+_COL_UNKNOWN = "#484f58"
+_COL_SELECT  = "#f0883e"
+
+_R       = 20   # default node radius
+_R_GW    = 26   # gateway node radius
+_CFG     = pathlib.Path.home() / ".cybersuite" / "config.json"
+
+# ── Network helpers ───────────────────────────────────────────────────────────
+
+def _local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+def _default_subnet(ip: str) -> str:
+    p = ip.split(".")
+    return f"{p[0]}.{p[1]}.{p[2]}.0/24"
+
+
+def _hostname(ip: str) -> str:
+    try:
+        return socket.gethostbyaddr(ip)[0]
+    except Exception:
+        return ""
+
+
+# Common OUI prefixes → (label, colour)
+_OUI_MAP: dict[str, tuple[str, str]] = {
+    # Apple
+    "000393": ("Apple", _COL_APPLE), "001124": ("Apple", _COL_APPLE),
+    "0017F2": ("Apple", _COL_APPLE), "001CB3": ("Apple", _COL_APPLE),
+    "3C0754": ("Apple", _COL_APPLE), "A88195": ("Apple", _COL_APPLE),
+    "ACBC32": ("Apple", _COL_APPLE), "F0DCE2": ("Apple", _COL_APPLE),
+    # Common router vendors
+    "000C29": ("VMware",  _COL_ROUTER), "D4CA6D": ("Router", _COL_ROUTER),
+    "B4750E": ("Router",  _COL_ROUTER), "E4956E": ("Router", _COL_ROUTER),
+    "C0A0BB": ("Router",  _COL_ROUTER), "001A11": ("Router", _COL_ROUTER),
+}
+
+
+def _classify(mac: str, hostname: str) -> tuple[str, str]:
+    oui = mac.upper().replace(":", "").replace("-", "")[:6]
+    if oui in _OUI_MAP:
+        return _OUI_MAP[oui]
+    h = hostname.lower()
+    if any(k in h for k in ("router", "gateway", "fritzbox", "livebox", "bbox")):
+        return "Router/GW", _COL_ROUTER
+    if any(k in h for k in ("iphone", "ipad", "macbook", "apple")):
+        return "Apple", _COL_APPLE
+    if any(k in h for k in ("android", "phone", "pixel", "samsung")):
+        return "Phone", _COL_PHONE
+    if any(k in h for k in ("printer", "print")):
+        return "Printer", _COL_PHONE
+    return "Host", _COL_HOST
+
+
+def _arp_scan(subnet: str, cb: Callable[[str], None]) -> list[dict]:
+    try:
+        from scapy.all import ARP, Ether, srp  # type: ignore
+    except ImportError:
+        cb("[ERROR] Scapy is not installed.\n")
+        return []
+    cb(f"[*] ARP scan → {subnet}\n")
+    try:
+        pkt  = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=subnet)
+        ans, _ = srp(pkt, timeout=3, verbose=0)
+    except Exception as exc:
+        cb(f"[ERROR] {exc}\n")
+        return []
+    hosts = []
+    for _, rcv in ans:
+        ip  = rcv.psrc
+        mac = rcv.hwsrc
+        hn  = _hostname(ip)
+        dev_type, color = _classify(mac, hn)
+        hosts.append({"ip": ip, "mac": mac, "hostname": hn,
+                       "type": dev_type, "color": color})
+        cb(f"  ↳  {ip:<16}  {mac}  {hn or dev_type}\n")
+    hosts.sort(key=lambda h: list(map(int, h["ip"].split("."))))
+    cb(f"[+] {len(hosts)} host(s) found.\n")
+    return hosts
+
+
+# ── Canvas widget ─────────────────────────────────────────────────────────────
+
+class _NetCanvas(tk.Canvas):
+    """Interactive 2-D network topology graph."""
+
+    def __init__(self, master: tk.Widget,
+                 on_select: Callable[[Optional[dict]], None], **kw) -> None:
+        super().__init__(master, bg=_BG, highlightthickness=0, **kw)
+        self._nodes:    list[dict]    = []
+        self._gateway:  Optional[dict] = None
+        self._selected: Optional[dict] = None
+        self._on_select = on_select
+        self._drag: dict = {"node": None, "ox": 0, "oy": 0}
+
+        self.bind("<Button-1>",  self._click)
+        self.bind("<B1-Motion>", self._drag_move)
+        self.bind("<Configure>", self._resize)
+
+    # ── Public ────────────────────────────────────────────────────────────────
+
+    def load(self, hosts: list[dict], local_ip: str) -> None:
+        self._nodes    = []
+        self._gateway  = None
+        self._selected = None
+
+        w = max(self.winfo_width(),  600)
+        h = max(self.winfo_height(), 400)
+        cx, cy = w / 2, h / 2
+
+        # Detect gateway: the .1 of the scanned subnet, or lowest IP
+        parts = local_ip.split(".")
+        gw_ip = f"{parts[0]}.{parts[1]}.{parts[2]}.1"
+        gw_candidates = [h2 for h2 in hosts if h2["ip"] == gw_ip]
+        gateway_ip = gw_candidates[0]["ip"] if gw_candidates else (hosts[0]["ip"] if hosts else None)
+
+        non_gw = [h2 for h2 in hosts if h2["ip"] != gateway_ip]
+        radius = min(w, h) * 0.33
+
+        for host in hosts:
+            is_gw   = host["ip"] == gateway_ip
+            is_self = host["ip"] == local_ip
+            if is_gw:
+                x, y = cx, cy
+            else:
+                idx   = non_gw.index(host)
+                angle = 2 * math.pi * idx / max(len(non_gw), 1) - math.pi / 2
+                x = cx + radius * math.cos(angle)
+                y = cy + radius * math.sin(angle)
+            node = {**host, "x": x, "y": y, "is_gw": is_gw, "is_self": is_self}
+            if is_gw:
+                self._gateway = node
+            self._nodes.append(node)
+
+        self._draw()
+
+    # ── Drawing ───────────────────────────────────────────────────────────────
+
+    def _draw(self) -> None:
+        self.delete("all")
+        gw = self._gateway
+
+        # Edges first (under nodes)
+        for node in self._nodes:
+            if gw and node is not gw:
+                self.create_line(gw["x"], gw["y"], node["x"], node["y"],
+                                 fill="#21262d", width=1.5)
+
+        for node in self._nodes:
+            self._draw_node(node)
+
+    def _draw_node(self, node: dict) -> None:
+        x, y    = node["x"], node["y"]
+        r       = _R_GW if node["is_gw"] else _R
+        sel     = node is self._selected
+        color   = _COL_SELECT if sel else node["color"]
+        outline = "#ffffff"  if sel else _BORDER
+        lw      = 3          if sel else 1.5
+
+        # Drop shadow
+        self.create_oval(x-r+2, y-r+2, x+r+2, y+r+2,
+                         fill="#000000", outline="", stipple="gray25")
+        # Node circle
+        self.create_oval(x-r, y-r, x+r, y+r,
+                         fill=color, outline=outline, width=lw)
+
+        # "this machine" green dot
+        if node["is_self"]:
+            self.create_oval(x-5, y-5, x+5, y+5, fill=_COL_SELF, outline="")
+
+        # IP label below
+        self.create_text(x, y + r + 11, text=node["ip"],
+                         fill=_HI, font=("Consolas", 9))
+        # Hostname label above (truncated)
+        if node["hostname"]:
+            hn = node["hostname"]
+            if len(hn) > 22:
+                hn = hn[:20] + "…"
+            self.create_text(x, y - r - 11, text=hn,
+                             fill=_LO, font=("Consolas", 8))
+
+    # ── Interaction ───────────────────────────────────────────────────────────
+
+    def _node_at(self, x: float, y: float) -> Optional[dict]:
+        for node in self._nodes:
+            r = _R_GW if node["is_gw"] else _R
+            if math.hypot(node["x"] - x, node["y"] - y) <= r:
+                return node
+        return None
+
+    def _click(self, ev: tk.Event) -> None:
+        node = self._node_at(ev.x, ev.y)
+        self._selected = node
+        self._drag = {"node": node, "ox": ev.x, "oy": ev.y}
+        self._draw()
+        self._on_select(node)
+
+    def _drag_move(self, ev: tk.Event) -> None:
+        node = self._drag["node"]
+        if node:
+            node["x"] += ev.x - self._drag["ox"]
+            node["y"] += ev.y - self._drag["oy"]
+            self._drag["ox"] = ev.x
+            self._drag["oy"] = ev.y
+            self._draw()
+
+    def _resize(self, _ev: tk.Event) -> None:
+        if self._nodes:
+            self._draw()
+
+
+# ── Page class ────────────────────────────────────────────────────────────────
+
+class NetMapPage(ctk.CTkFrame):
+    """Network Map page — fits into the CyberSuite Pro launcher."""
+
+    def __init__(self, master: ctk.CTkFrame,
+                 runner,  # ToolRunner (typed loosely to avoid circular import)
+                 output_cb: Callable[[str], None]) -> None:
+        super().__init__(master, fg_color="transparent")
+        self._runner    = runner
+        self._out       = output_cb
+        self._local_ip  = _local_ip()
+        self._hosts:    list[dict]    = []
+        self._selected: Optional[dict] = None
+        self._build()
+
+    # ── Layout ────────────────────────────────────────────────────────────────
+
+    def _build(self) -> None:
+        # Header
+        hdr = ctk.CTkFrame(self, fg_color="transparent")
+        hdr.pack(fill="x", padx=24, pady=(20, 6))
+        ctk.CTkLabel(hdr, text="Network Map",
+                     font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        ctk.CTkLabel(hdr, text="  —  ARP scan · 2-D topology · click to target",
+                     text_color=_LO, font=ctk.CTkFont(size=12)).pack(side="left")
+
+        # Toolbar
+        tb = ctk.CTkFrame(self, fg_color=_SURFACE, corner_radius=8,
+                          border_width=1, border_color=_BORDER)
+        tb.pack(fill="x", padx=24, pady=(0, 8))
+
+        ctk.CTkLabel(tb, text="Subnet:", text_color=_LO,
+                     font=ctk.CTkFont(family="Consolas", size=12)
+                     ).pack(side="left", padx=(14, 4), pady=8)
+
+        self._subnet_var = ctk.StringVar(value=_default_subnet(self._local_ip))
+        ctk.CTkEntry(tb, textvariable=self._subnet_var, width=180,
+                     font=ctk.CTkFont(family="Consolas", size=12)
+                     ).pack(side="left", padx=4, pady=8)
+
+        self._scan_btn = ctk.CTkButton(
+            tb, text="⟳  Scan Network", width=140,
+            fg_color=_GREEN, hover_color="#2ea043",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self._scan,
+        )
+        self._scan_btn.pack(side="left", padx=(10, 6), pady=8)
+
+        self._status_lbl = ctk.CTkLabel(
+            tb, text=f"Local: {self._local_ip}",
+            text_color=_LO, font=ctk.CTkFont(family="Consolas", size=11))
+        self._status_lbl.pack(side="left", padx=8)
+
+        # Legend
+        legend = ctk.CTkFrame(tb, fg_color="transparent")
+        legend.pack(side="right", padx=14)
+        for label, color in [("Router", _COL_ROUTER), ("Host", _COL_HOST),
+                               ("Apple", _COL_APPLE),  ("Phone", _COL_PHONE),
+                               ("You",   _COL_SELF)]:
+            dot = tk.Canvas(legend, width=10, height=10,
+                            bg=_SURFACE, highlightthickness=0)
+            dot.create_oval(1, 1, 9, 9, fill=color, outline="")
+            dot.pack(side="left", padx=(6, 2))
+            ctk.CTkLabel(legend, text=label, text_color=_LO,
+                         font=ctk.CTkFont(size=10)).pack(side="left", padx=(0, 4))
+
+        # Main split: canvas | info panel
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=24, pady=(0, 16))
+        body.grid_columnconfigure(0, weight=1)
+        body.grid_columnconfigure(1, weight=0)
+        body.grid_rowconfigure(0, weight=1)
+
+        # Canvas card
+        canvas_card = ctk.CTkFrame(body, fg_color=_SURFACE, corner_radius=8,
+                                   border_width=1, border_color=_BORDER)
+        canvas_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        canvas_card.grid_rowconfigure(0, weight=1)
+        canvas_card.grid_columnconfigure(0, weight=1)
+
+        self._canvas = _NetCanvas(canvas_card, on_select=self._on_select)
+        self._canvas.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+
+        self._empty_lbl = ctk.CTkLabel(
+            canvas_card,
+            text="No hosts discovered yet.\n\nClick  ⟳ Scan Network  to start.",
+            text_color=_LO, font=ctk.CTkFont(family="Consolas", size=13))
+        self._empty_lbl.place(relx=0.5, rely=0.5, anchor="center")
+
+        # Info panel
+        self._panel = ctk.CTkFrame(body, fg_color=_SURFACE, corner_radius=8,
+                                   border_width=1, border_color=_BORDER,
+                                   width=230)
+        self._panel.grid(row=0, column=1, sticky="nsew")
+        self._panel.grid_propagate(False)
+        self._build_panel()
+
+    def _build_panel(self) -> None:
+        p = self._panel
+
+        ctk.CTkLabel(p, text="SELECTED NODE",
+                     font=ctk.CTkFont(size=10, weight="bold"),
+                     text_color=_LO).pack(anchor="w", padx=16, pady=(18, 0))
+
+        ctk.CTkFrame(p, height=1, fg_color=_BORDER).pack(
+            fill="x", padx=16, pady=(6, 14))
+
+        self._fvars: dict[str, ctk.StringVar] = {}
+        for field in ("IP", "MAC", "Hostname", "Type"):
+            row = ctk.CTkFrame(p, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=3)
+            ctk.CTkLabel(row, text=f"{field}:", width=70,
+                         text_color=_LO,
+                         font=ctk.CTkFont(family="Consolas", size=11),
+                         anchor="w").pack(side="left")
+            var = ctk.StringVar(value="—")
+            ctk.CTkLabel(row, textvariable=var, text_color=_HI,
+                         font=ctk.CTkFont(family="Consolas", size=11),
+                         anchor="w", wraplength=130).pack(side="left")
+            self._fvars[field] = var
+
+        ctk.CTkFrame(p, height=1, fg_color=_BORDER).pack(
+            fill="x", padx=16, pady=(16, 12))
+
+        self._target_btn = ctk.CTkButton(
+            p, text="⊛  Set as Target", state="disabled",
+            fg_color=_CYAN, hover_color="#388bfd",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self._set_target,
+        )
+        self._target_btn.pack(fill="x", padx=16, pady=(0, 8))
+
+        self._copy_btn = ctk.CTkButton(
+            p, text="Copy IP", state="disabled",
+            fg_color=_SURFACE, hover_color=_BORDER,
+            border_width=1, border_color=_BORDER,
+            text_color=_HI, font=ctk.CTkFont(size=12),
+            command=self._copy_ip,
+        )
+        self._copy_btn.pack(fill="x", padx=16, pady=(0, 8))
+
+        ctk.CTkFrame(p, height=1, fg_color=_BORDER).pack(
+            fill="x", padx=16, pady=(4, 12))
+
+        # Host list (scrollable, built after scan)
+        ctk.CTkLabel(p, text="ALL HOSTS",
+                     font=ctk.CTkFont(size=10, weight="bold"),
+                     text_color=_LO).pack(anchor="w", padx=16, pady=(0, 4))
+
+        self._list_frame = ctk.CTkScrollableFrame(
+            p, fg_color="transparent", height=180)
+        self._list_frame.pack(fill="both", expand=True, padx=8, pady=(0, 12))
+
+    # ── Scan ──────────────────────────────────────────────────────────────────
+
+    def _scan(self) -> None:
+        if self._runner.is_running:
+            self._runner.stop()
+            return
+
+        subnet = self._subnet_var.get().strip()
+        try:
+            ipaddress.ip_network(subnet, strict=False)
+        except ValueError:
+            self._out(f"[ERROR] Invalid subnet: {subnet}\n")
+            return
+
+        self._scan_btn.configure(text="◼  Stop", fg_color=_RED, hover_color="#b91c1c")
+        self._status_lbl.configure(text="Scanning…")
+        self._empty_lbl.configure(text="Scanning…")
+        self._empty_lbl.place(relx=0.5, rely=0.5, anchor="center")
+        self._canvas.delete("all")
+        self._hosts = []
+
+        def do() -> int:
+            hosts = _arp_scan(subnet, self._out)
+            self.after(0, lambda: self._on_scan_done(hosts))
+            return 0
+
+        def done(code: int) -> None:
+            self.after(0, lambda: self._scan_btn.configure(
+                text="⟳  Scan Network", fg_color=_GREEN, hover_color="#2ea043"))
+
+        self._runner.run(do, done_cb=done,
+                         output_cb=self._out, tool_name="NetMap")
+
+    def _on_scan_done(self, hosts: list[dict]) -> None:
+        self._hosts = hosts
+        if hosts:
+            self._empty_lbl.place_forget()
+            self._canvas.load(hosts, self._local_ip)
+            self._status_lbl.configure(
+                text=f"Local: {self._local_ip}  ·  {len(hosts)} host(s)")
+            self._build_host_list()
+        else:
+            self._empty_lbl.configure(text="No hosts found.\nTry running as Administrator.")
+
+    def _build_host_list(self) -> None:
+        for w in self._list_frame.winfo_children():
+            w.destroy()
+        for host in self._hosts:
+            row = ctk.CTkFrame(self._list_frame, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+            dot = tk.Canvas(row, width=8, height=8,
+                            bg=_SURFACE, highlightthickness=0)
+            dot.create_oval(1, 1, 7, 7, fill=host["color"], outline="")
+            dot.pack(side="left", padx=(2, 4))
+            ctk.CTkLabel(row, text=host["ip"],
+                         font=ctk.CTkFont(family="Consolas", size=11),
+                         text_color=_HI, cursor="hand2").pack(side="left")
+            row.bind("<Button-1>", lambda _e, h=host: self._select_from_list(h))
+            for w in row.winfo_children():
+                w.bind("<Button-1>", lambda _e, h=host: self._select_from_list(h))
+
+    def _select_from_list(self, host: dict) -> None:
+        # Find the matching node in the canvas and select it
+        for node in self._canvas._nodes:
+            if node["ip"] == host["ip"]:
+                self._canvas._selected = node
+                self._canvas._draw()
+                self._on_select(node)
+                break
+
+    # ── Selection ─────────────────────────────────────────────────────────────
+
+    def _on_select(self, node: Optional[dict]) -> None:
+        self._selected = node
+        if node:
+            self._fvars["IP"].set(node["ip"])
+            self._fvars["MAC"].set(node["mac"])
+            self._fvars["Hostname"].set(node["hostname"] or "—")
+            self._fvars["Type"].set(node["type"])
+            self._target_btn.configure(state="normal")
+            self._copy_btn.configure(state="normal")
+        else:
+            for v in self._fvars.values():
+                v.set("—")
+            self._target_btn.configure(state="disabled")
+            self._copy_btn.configure(state="disabled")
+
+    def _set_target(self) -> None:
+        if not self._selected:
+            return
+        ip = self._selected["ip"]
+        _CFG.parent.mkdir(parents=True, exist_ok=True)
+        cfg: dict = {}
+        if _CFG.exists():
+            try:
+                cfg = json.loads(_CFG.read_text())
+            except Exception:
+                pass
+        cfg["active_target"] = ip
+        _CFG.write_text(json.dumps(cfg, indent=2))
+        self._out(f"[+] Active target set → {ip}\n")
+        self._status_lbl.configure(text=f"Target: {ip}")
+        self._copy_ip()
+
+    def _copy_ip(self) -> None:
+        if self._selected:
+            self.clipboard_clear()
+            self.clipboard_append(self._selected["ip"])
+            self._out(f"[+] Copied {self._selected['ip']} to clipboard.\n")
