@@ -30,6 +30,7 @@ from .pages.recon_page  import ReconPage
 from .pages.netmap_page import NetMapPage
 from .pages.mitm_page    import MITMPage
 from .pages.report_page  import ReportPage
+from .pages.creds_page   import CredsPage
 from .utils.runner import ToolRunner
 
 ctk.set_appearance_mode("dark")
@@ -40,6 +41,7 @@ _NAV = [
     ("Recon",   "recon"),
     ("NetMap",  "netmap"),
     ("MITM",    "mitm"),
+    ("Creds",   "creds"),
     ("NIDS",    "nids"),
     ("PAS",     "pas"),
     ("SMA",     "sma"),
@@ -206,7 +208,8 @@ class App(ctk.CTk):
         self._pages["home"]   = HomePage(self._page_container, navigate_cb=self._navigate)
         self._pages["recon"]  = ReconPage(self._page_container, self._runner, out)
         self._pages["netmap"] = NetMapPage(self._page_container, self._runner, out)
-        self._pages["mitm"]   = MITMPage (self._page_container, self._runner, out)
+        self._pages["mitm"]   = MITMPage  (self._page_container, self._runner, out)
+        self._pages["creds"]  = CredsPage (self._page_container, self._runner, out)
         self._pages["nids"]   = NIDSPage (self._page_container, self._runner, out)
         self._pages["pas"]  = PASPage (self._page_container, self._runner, out)
         self._pages["sma"]  = SMAPage (self._page_container, self._runner, out)

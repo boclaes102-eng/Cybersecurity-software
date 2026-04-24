@@ -21,6 +21,18 @@ _TOOLS = [
         "deps": [],
     },
     {
+        "key": "creds",
+        "short": "CRED",
+        "title": "Credential Harvester",
+        "desc": (
+            "Live credential capture during MITM:\n"
+            "HTTP form POST · Basic Auth headers\n"
+            "NTLM hash extraction (NTLMv2)\n\n"
+            "One-click export to hashcat format."
+        ),
+        "deps": ["scapy"],
+    },
+    {
         "key": "mitm",
         "short": "MITM",
         "title": "ARP Spoof / MITM",
