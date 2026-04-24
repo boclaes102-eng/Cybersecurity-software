@@ -804,6 +804,21 @@ class NetMapPage(ctk.CTkFrame):
                 if node["ip"] == self._selected.get("ip"):
                     self._on_select(node)
                     break
+        # Save scan results so Report Generator can import them
+        try:
+            cfg_path = _CFG
+            cfg: dict = {}
+            if cfg_path.exists():
+                cfg = json.loads(cfg_path.read_text())
+            cfg["last_scan_hosts"] = [
+                {k: v for k, v in h.items()
+                 if k not in ("x", "y", "is_gw", "is_self", "_enriching")}
+                for h in hosts
+            ]
+            cfg_path.parent.mkdir(parents=True, exist_ok=True)
+            cfg_path.write_text(json.dumps(cfg, indent=2))
+        except Exception:
+            pass
 
     def _build_host_list(self) -> None:
         for w in self._list_frame.winfo_children():

@@ -17,7 +17,6 @@ import threading
 from typing import Callable, Optional
 
 import customtkinter as ctk
-import tkinter as tk
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 _SURFACE = "#161b22"

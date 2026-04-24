@@ -153,7 +153,6 @@ def _run_enum(dc: str, domain: str, user: str, password: str,
 
     # ── 5. Stale accounts (lastLogon > 90 days, not disabled)
     cb("[*] Checking stale accounts (90+ days)…\n")
-    from ldap3.utils.conv import to_raw_query  # noqa
     cutoff = int((datetime(2000,1,1) - datetime(1601,1,1)).total_seconds()
                  * 10**7)  # rough — get all then filter
     conn.search(base_dn,

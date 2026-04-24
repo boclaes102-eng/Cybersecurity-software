@@ -185,108 +185,118 @@ class HomePage(ctk.CTkFrame):
     def _build(self) -> None:
         # ── Header ──────────────────────────────────────────────────────
         hdr = ctk.CTkFrame(self, fg_color="transparent")
-        hdr.pack(fill="x", padx=32, pady=(32, 8))
+        hdr.pack(fill="x", padx=28, pady=(28, 6))
 
-        ctk.CTkLabel(
-            hdr,
-            text="CyberSuite Pro",
-            font=ctk.CTkFont(size=30, weight="bold"),
-        ).pack(anchor="w")
-        ctk.CTkLabel(
-            hdr,
-            text="Six professional security tools — one unified launcher.",
-            text_color="gray",
-            font=ctk.CTkFont(size=14),
-        ).pack(anchor="w", pady=(2, 0))
+        ctk.CTkLabel(hdr, text="CyberSuite Pro",
+                     font=ctk.CTkFont(size=28, weight="bold"),
+                     text_color="#e6edf3").pack(anchor="w")
+        ctk.CTkLabel(hdr,
+                     text=f"Unified security operations toolkit  ·  {len(_TOOLS)} modules",
+                     text_color="#7d8590",
+                     font=ctk.CTkFont(size=13)).pack(anchor="w", pady=(2, 0))
 
-        ctk.CTkFrame(self, height=1, fg_color="#30363d").pack(fill="x", padx=32, pady=16)
+        ctk.CTkFrame(self, height=1, fg_color="#21262d").pack(
+            fill="x", padx=28, pady=(14, 12))
 
-        # ── Tool cards (2 rows × 3 columns) ─────────────────────────────
-        cards = ctk.CTkFrame(self, fg_color="transparent")
-        cards.pack(fill="both", expand=True, padx=24, pady=0)
-        cards.grid_columnconfigure((0, 1, 2), weight=1, uniform="card")
-        cards.grid_rowconfigure((0, 1, 2), weight=1)
+        # ── Tool cards ───────────────────────────────────────────────────
+        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent",
+                                        scrollbar_button_color="#30363d")
+        scroll.pack(fill="both", expand=True, padx=20, pady=0)
+        scroll.grid_columnconfigure((0, 1, 2), weight=1, uniform="card")
+        max_row = (len(_TOOLS) - 1) // 3
+        scroll.grid_rowconfigure(tuple(range(max_row + 1)), weight=1)
 
         for idx, tool in enumerate(_TOOLS):
             row, col = divmod(idx, 3)
-            self._make_card(cards, tool, row, col)
+            self._make_card(scroll, tool, row, col)
 
         # ── Dependency status bar ────────────────────────────────────────
-        bar = ctk.CTkFrame(self, corner_radius=8)
-        bar.pack(fill="x", padx=32, pady=(16, 28))
+        bar = ctk.CTkFrame(self, fg_color="#161b22", corner_radius=8,
+                           border_width=1, border_color="#21262d")
+        bar.pack(fill="x", padx=28, pady=(10, 20))
 
-        ctk.CTkLabel(
-            bar,
-            text="  Dependency status",
-            font=ctk.CTkFont(weight="bold"),
-            anchor="w",
-        ).pack(fill="x", padx=4, pady=(8, 4))
+        ctk.CTkLabel(bar, text="Dependencies",
+                     font=ctk.CTkFont(size=10, weight="bold"),
+                     text_color="#7d8590"
+                     ).pack(anchor="w", padx=16, pady=(10, 4))
 
-        row = ctk.CTkFrame(bar, fg_color="transparent")
-        row.pack(fill="x", padx=8, pady=(0, 8))
+        dep_row = ctk.CTkFrame(bar, fg_color="transparent")
+        dep_row.pack(fill="x", padx=12, pady=(0, 10))
 
         all_deps = sorted({d.split("[")[0] for t in _TOOLS for d in t["deps"] if d})
         for dep in all_deps:
             ok = _dep_ok(dep)
             color = "#3fb950" if ok else "#f85149"
-            mark = "OK" if ok else "!!"
-            ctk.CTkLabel(
-                row,
-                text=f"{mark} {dep}",
-                text_color=color,
-                font=ctk.CTkFont(size=12),
-            ).pack(side="left", padx=8)
+            ctk.CTkLabel(dep_row,
+                         text=f"{'✓' if ok else '✗'}  {dep}",
+                         text_color=color,
+                         font=ctk.CTkFont(family="Consolas", size=11),
+                         ).pack(side="left", padx=10)
 
     # ------------------------------------------------------------------
-    def _make_card(self, parent: ctk.CTkFrame, tool: dict, row: int, col: int) -> None:
-        card = ctk.CTkFrame(parent, corner_radius=12)
-        card.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
-        card.grid_rowconfigure(3, weight=1)
+    def _make_card(self, parent: ctk.CTkFrame, tool: dict,
+                   row: int, col: int) -> None:
+        card = ctk.CTkFrame(parent, fg_color="#161b22",
+                            corner_radius=8,
+                            border_width=1, border_color="#21262d")
+        card.grid(row=row, column=col, padx=6, pady=6, sticky="nsew")
+        card.grid_rowconfigure(2, weight=1)
         card.grid_columnconfigure(0, weight=1)
 
-        # Badge
-        badge_frame = ctk.CTkFrame(card, fg_color="#1d3557", corner_radius=6)
-        badge_frame.grid(row=0, column=0, sticky="w", padx=16, pady=(18, 6))
-        ctk.CTkLabel(
-            badge_frame,
-            text=tool["short"],
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color="#58a6ff",
-        ).pack(padx=10, pady=4)
+        # Top accent bar
+        ctk.CTkFrame(card, height=2, fg_color="#58a6ff",
+                     corner_radius=0).grid(
+            row=0, column=0, sticky="ew")
 
-        ctk.CTkLabel(
-            card,
-            text=tool["title"],
-            font=ctk.CTkFont(size=16, weight="bold"),
-            wraplength=230,
-            anchor="w",
-        ).grid(row=1, column=0, sticky="w", padx=16, pady=(0, 8))
+        # Content
+        content = ctk.CTkFrame(card, fg_color="transparent")
+        content.grid(row=1, column=0, sticky="nsew", padx=14, pady=(12, 0))
+        content.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
-            card,
-            text=tool["desc"],
-            text_color="gray",
-            font=ctk.CTkFont(size=12),
-            wraplength=230,
-            justify="left",
-            anchor="w",
-        ).grid(row=2, column=0, sticky="w", padx=16)
+        # Badge + title row
+        top = ctk.CTkFrame(content, fg_color="transparent")
+        top.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        ctk.CTkLabel(top, text=tool["short"],
+                     font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
+                     text_color="#58a6ff",
+                     fg_color="#0d2044",
+                     corner_radius=4,
+                     width=40
+                     ).pack(side="left", padx=(0, 10), ipadx=6, ipady=3)
+        ctk.CTkLabel(top, text=tool["title"],
+                     font=ctk.CTkFont(size=13, weight="bold"),
+                     text_color="#e6edf3", anchor="w"
+                     ).pack(side="left", fill="x", expand=True)
 
-        # Dep status
+        ctk.CTkLabel(content,
+                     text=tool["desc"],
+                     text_color="#7d8590",
+                     font=ctk.CTkFont(size=11),
+                     wraplength=210,
+                     justify="left",
+                     anchor="nw",
+                     ).grid(row=1, column=0, sticky="nw")
+
+        # Footer
+        footer = ctk.CTkFrame(card, fg_color="transparent")
+        footer.grid(row=2, column=0, sticky="sew", padx=14, pady=(8, 12))
+        footer.grid_columnconfigure(0, weight=1)
+
         ok_count = sum(_dep_ok(d) for d in tool["deps"])
         total = len(tool["deps"])
-        dep_color = "#3fb950" if ok_count == total else ("#d29922" if ok_count else "#f85149")
-        ctk.CTkLabel(
-            card,
-            text=f"{ok_count}/{total} dependencies found",
-            text_color=dep_color,
-            font=ctk.CTkFont(size=11),
-        ).grid(row=3, column=0, sticky="sw", padx=16, pady=(12, 6))
+        dep_color = ("#3fb950" if ok_count == total
+                     else ("#d29922" if ok_count else "#f85149"))
+        if total:
+            ctk.CTkLabel(footer,
+                         text=f"{ok_count}/{total} deps",
+                         text_color=dep_color,
+                         font=ctk.CTkFont(family="Consolas", size=10),
+                         ).grid(row=0, column=0, sticky="w", pady=(0, 6))
 
-        ctk.CTkButton(
-            card,
-            text=f"Open {tool['short']}",
-            fg_color="#238636",
-            hover_color="#2ea043",
-            command=lambda k=tool["key"]: self._navigate(k),
-        ).grid(row=4, column=0, sticky="ew", padx=16, pady=(0, 16))
+        ctk.CTkButton(footer,
+                      text="Open →",
+                      fg_color="#238636", hover_color="#2ea043",
+                      font=ctk.CTkFont(size=12, weight="bold"),
+                      height=32,
+                      command=lambda k=tool["key"]: self._navigate(k),
+                      ).grid(row=1, column=0, sticky="ew")

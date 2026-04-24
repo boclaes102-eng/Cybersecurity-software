@@ -26,7 +26,7 @@ from typing import Callable, Optional
 from urllib.parse import parse_qs, unquote_plus
 
 import customtkinter as ctk
-import tkinter as tk
+import tkinter as tk  # needed for Canvas widget in table rows
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 _BG      = "#0d1117"

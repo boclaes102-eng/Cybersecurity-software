@@ -3,17 +3,13 @@ CyberSuite Pro — main application window.
 
 Layout
 ──────
-┌────────────┬───────────────────────────────────────────────┐
-│  Sidebar   │  Page frame (Home / NIDS / PAS / SMA)         │
-│  220 px    │                                               │
-│            ├───────────────────────────────────────────────┤
-│  Status    │  Output console  (260 px tall)                │
-└────────────┴───────────────────────────────────────────────┘
+┌────────────┬──────────────────────────────────────────────────┐
+│  Sidebar   │  Page frame                                      │
+│  236 px    ├──────────────────────────────────────────────────┤
+│            │  Output console  (260 px)                        │
+└────────────┴──────────────────────────────────────────────────┘
 
-Keyboard shortcuts
-──────────────────
-  Ctrl+L   — clear output console
-  Escape   — stop running tool
+Keyboard shortcuts:  Ctrl+L = clear console   Escape = stop tool
 """
 from __future__ import annotations
 
@@ -28,125 +24,191 @@ from .pages.pgn_page    import PGNPage
 from .pages.ceh_page    import CEHPage
 from .pages.recon_page  import ReconPage
 from .pages.netmap_page import NetMapPage
-from .pages.mitm_page    import MITMPage
-from .pages.report_page  import ReportPage
-from .pages.creds_page   import CredsPage
-from .pages.msf_page     import MSFPage
-from .pages.wifi_page    import WiFiPage
-from .pages.ad_page      import ADPage
-from .utils.runner import ToolRunner
+from .pages.mitm_page   import MITMPage
+from .pages.report_page import ReportPage
+from .pages.creds_page  import CredsPage
+from .pages.msf_page    import MSFPage
+from .pages.wifi_page   import WiFiPage
+from .pages.ad_page     import ADPage
+from .utils.runner      import ToolRunner
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-_NAV = [
-    ("Home",    "home"),
-    ("Recon",   "recon"),
-    ("NetMap",  "netmap"),
-    ("MITM",    "mitm"),
-    ("Creds",   "creds"),
-    ("MSF",     "msf"),
-    ("WiFi",    "wifi"),
-    ("AD",      "ad"),
-    ("NIDS",    "nids"),
-    ("PAS",     "pas"),
-    ("SMA",     "sma"),
-    ("WAT",     "wat"),
-    ("PGN",     "pgn"),
-    ("CEH",     "ceh"),
-    ("Report",  "report"),
+# ── Navigation structure ──────────────────────────────────────────────────────
+_NAV: list[tuple[str | None, list[tuple[str, str]]]] = [
+    (None, [
+        ("Home", "home"),
+    ]),
+    ("RECON", [
+        ("Recon Workspace", "recon"),
+        ("Network Map",     "netmap"),
+        ("WiFi Recon",      "wifi"),
+    ]),
+    ("ATTACK", [
+        ("MITM / ARP Spoof", "mitm"),
+        ("Cred Harvester",   "creds"),
+        ("Metasploit",       "msf"),
+        ("AD Enumeration",   "ad"),
+    ]),
+    ("ANALYSIS", [
+        ("NIDS",             "nids"),
+        ("Password Audit",   "pas"),
+        ("Malware Analyzer", "sma"),
+        ("Web App Tester",   "wat"),
+        ("Payload Gen",      "pgn"),
+        ("CVE / Exploits",   "ceh"),
+    ]),
+    ("REPORTING", [
+        ("Report Builder", "report"),
+    ]),
 ]
 
-# Output-line colour classification
+# Flat ordered list for navigation logic
+_NAV_FLAT = [(label, key)
+             for _, items in _NAV
+             for label, key in items]
+
+# Console tag rules
 _TAG_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("error",   ("[error]", "error:", "traceback", "exception:", "[stopped")),
-    ("warning", ("[warning]", "warning:", "warn:")),
-    ("success", ("[finished", "analysis complete", "done]", "clean")),
-    ("info",    ("=" * 10, "starting")),
+    ("warning", ("[warning]", "warning:", "warn:", "[!")),
+    ("success", ("[finished", "analysis complete", "[+]", "complete", "sent")),
+    ("info",    ("=" * 10, "starting", "[*]")),
 ]
 
 
 class App(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("CyberSuite Pro — Security Toolkit")
-        self.geometry("1280x820")
-        self.minsize(960, 640)
+        self.title("CyberSuite Pro")
+        self.geometry("1360x860")
+        self.minsize(1024, 680)
         self.after(0, lambda: self.state("zoomed"))
+        self.configure(fg_color="#0d1117")
 
-        self._runner = ToolRunner()
-        self._pages: dict[str, ctk.CTkFrame] = {}
-        self._nav_btns: dict[str, ctk.CTkButton] = {}
+        self._runner     = ToolRunner()
+        self._pages:     dict[str, ctk.CTkFrame]   = {}
+        self._nav_btns:  dict[str, ctk.CTkFrame]   = {}   # key → row frame
+        self._accents:   dict[str, ctk.CTkFrame]   = {}   # key → accent strip
+        self._nav_labels: dict[str, ctk.CTkLabel]  = {}   # key → label
         self._active_page = ""
 
         self._build_layout()
         self._bind_shortcuts()
         self._navigate("home")
-        self._poll_status()          # start periodic status refresh
+        self._poll_status()
 
-    # ──────────────────────────────────────────────────────────────────────
+    # ── Layout ────────────────────────────────────────────────────────────────
+
     def _build_layout(self) -> None:
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # ── Sidebar ───────────────────────────────────────────────────────
-        sidebar = ctk.CTkFrame(self, width=224, corner_radius=0, fg_color="#161b22")
+        self._build_sidebar()
+        self._build_content()
+
+    def _build_sidebar(self) -> None:
+        sidebar = ctk.CTkFrame(self, width=236, corner_radius=0,
+                               fg_color="#161b22",
+                               border_width=0)
         sidebar.grid(row=0, column=0, sticky="nsew")
         sidebar.grid_propagate(False)
         sidebar.grid_columnconfigure(0, weight=1)
-        sidebar.grid_rowconfigure(3, weight=1)   # spacer row
+        sidebar.grid_rowconfigure(2, weight=1)
 
-        # Logo
+        # ── Logo ─────────────────────────────────────────────────────────────
         logo = ctk.CTkFrame(sidebar, fg_color="transparent")
-        logo.grid(row=0, column=0, padx=16, pady=(24, 8), sticky="ew")
-        ctk.CTkLabel(logo, text="CyberSuite",
-                     font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w")
-        ctk.CTkLabel(logo, text="Pro Edition",
-                     text_color="gray", font=ctk.CTkFont(size=11)).pack(anchor="w")
+        logo.grid(row=0, column=0, padx=20, pady=(24, 16), sticky="ew")
 
-        ctk.CTkFrame(sidebar, height=1, fg_color="#30363d").grid(
-            row=1, column=0, padx=12, pady=(0, 8), sticky="ew")
+        logo_inner = ctk.CTkFrame(logo, fg_color="transparent")
+        logo_inner.pack(anchor="w")
+        ctk.CTkLabel(logo_inner, text="CyberSuite",
+                     font=ctk.CTkFont(size=18, weight="bold"),
+                     text_color="#e6edf3").pack(side="left")
+        ctk.CTkLabel(logo_inner, text=" Pro",
+                     font=ctk.CTkFont(size=18),
+                     text_color="#58a6ff").pack(side="left")
+        ctk.CTkLabel(logo, text="Security Operations Toolkit",
+                     font=ctk.CTkFont(size=10),
+                     text_color="#7d8590").pack(anchor="w", pady=(2, 0))
 
-        # Nav buttons
-        nav_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
-        nav_frame.grid(row=2, column=0, sticky="ew", padx=8)
+        ctk.CTkFrame(sidebar, height=1, fg_color="#21262d").grid(
+            row=1, column=0, sticky="ew", padx=0)
 
-        for label, key in _NAV:
-            btn = ctk.CTkButton(
-                nav_frame,
-                text=label,
-                anchor="w",
-                fg_color="transparent",
-                hover_color="#21262d",
-                text_color="gray70",
-                font=ctk.CTkFont(size=14),
-                height=42,
-                command=lambda k=key: self._navigate(k),
-            )
-            btn.pack(fill="x", pady=2)
-            self._nav_btns[key] = btn
+        # ── Navigation ────────────────────────────────────────────────────────
+        nav_scroll = ctk.CTkScrollableFrame(
+            sidebar, fg_color="transparent",
+            scrollbar_button_color="#30363d",
+            scrollbar_button_hover_color="#484f58")
+        nav_scroll.grid(row=2, column=0, sticky="nsew", padx=0, pady=(8, 0))
+        nav_scroll.grid_columnconfigure(0, weight=1)
 
-        # Spacer
-        ctk.CTkFrame(sidebar, fg_color="transparent").grid(
-            row=3, column=0, sticky="nsew")
+        for section, items in _NAV:
+            if section:
+                ctk.CTkLabel(nav_scroll, text=section,
+                             font=ctk.CTkFont(size=9, weight="bold"),
+                             text_color="#484f58"
+                             ).pack(anchor="w", padx=20, pady=(14, 3))
 
-        # Status indicator
-        status_frame = ctk.CTkFrame(sidebar, fg_color="#0d1117", corner_radius=8)
-        status_frame.grid(row=4, column=0, padx=12, pady=8, sticky="ew")
-        self._status_dot  = ctk.CTkLabel(status_frame, text="●",
-                                          font=ctk.CTkFont(size=10))
-        self._status_dot.pack(side="left", padx=(10, 4), pady=8)
-        self._status_text = ctk.CTkLabel(status_frame, text="Ready",
-                                          font=ctk.CTkFont(size=12), anchor="w")
-        self._status_text.pack(side="left", pady=8, fill="x", expand=True)
+            for label, key in items:
+                self._make_nav_item(nav_scroll, label, key)
 
-        # Version footer
-        ctk.CTkLabel(sidebar, text="github.com/boclaes",
-                     text_color="#484f58", font=ctk.CTkFont(size=10)).grid(
-            row=5, column=0, padx=12, pady=(0, 12), sticky="sw")
+        # ── Status bar ────────────────────────────────────────────────────────
+        ctk.CTkFrame(sidebar, height=1, fg_color="#21262d").grid(
+            row=3, column=0, sticky="ew")
 
-        # ── Main content area ─────────────────────────────────────────────
-        content = ctk.CTkFrame(self, fg_color="transparent", corner_radius=0)
+        status = ctk.CTkFrame(sidebar, fg_color="transparent")
+        status.grid(row=4, column=0, padx=20, pady=12, sticky="ew")
+
+        self._status_dot = ctk.CTkLabel(status, text="●",
+                                         font=ctk.CTkFont(size=9),
+                                         text_color="#3fb950")
+        self._status_dot.pack(side="left")
+        self._status_text = ctk.CTkLabel(status, text="Ready",
+                                          font=ctk.CTkFont(size=11),
+                                          text_color="#7d8590",
+                                          anchor="w")
+        self._status_text.pack(side="left", padx=(6, 0))
+
+        ctk.CTkLabel(sidebar, text="boclaes102-eng",
+                     font=ctk.CTkFont(size=9),
+                     text_color="#484f58"
+                     ).grid(row=5, column=0, padx=20, pady=(0, 14), sticky="sw")
+
+    def _make_nav_item(self, parent: ctk.CTkFrame,
+                       label: str, key: str) -> None:
+        """Create a nav row: 3px accent strip + label button."""
+        row = ctk.CTkFrame(parent, fg_color="transparent", height=34)
+        row.pack(fill="x", pady=1)
+        row.pack_propagate(False)
+
+        accent = ctk.CTkFrame(row, width=3, fg_color="transparent",
+                              corner_radius=0)
+        accent.pack(side="left", fill="y")
+
+        btn = ctk.CTkButton(
+            row,
+            text=label,
+            anchor="w",
+            fg_color="transparent",
+            hover_color="#1c2128",
+            text_color="#7d8590",
+            font=ctk.CTkFont(size=12),
+            height=34,
+            corner_radius=4,
+            command=lambda k=key: self._navigate(k),
+        )
+        btn.pack(side="left", fill="x", expand=True, padx=(4, 8))
+
+        self._nav_btns[key]   = row
+        self._accents[key]    = accent
+        self._nav_labels[key] = btn
+
+    # ── Content area ──────────────────────────────────────────────────────────
+
+    def _build_content(self) -> None:
+        content = ctk.CTkFrame(self, fg_color="#0d1117", corner_radius=0)
         content.grid(row=0, column=1, sticky="nsew")
         content.grid_rowconfigure(0, weight=1)
         content.grid_columnconfigure(0, weight=1)
@@ -155,98 +217,109 @@ class App(ctk.CTk):
         self._page_container = ctk.CTkFrame(content, fg_color="transparent")
         self._page_container.grid(row=0, column=0, sticky="nsew")
 
-        # ── Output console ────────────────────────────────────────────────
-        console_outer = ctk.CTkFrame(content, corner_radius=0, fg_color="#0d1117", height=270)
+        # Console
+        console_outer = ctk.CTkFrame(content, corner_radius=0,
+                                     fg_color="#0d1117", height=240)
         console_outer.grid(row=1, column=0, sticky="ew")
         console_outer.grid_propagate(False)
         console_outer.grid_rowconfigure(1, weight=1)
         console_outer.grid_columnconfigure(0, weight=1)
 
-        # Toolbar
-        toolbar = ctk.CTkFrame(console_outer, fg_color="#161b22", height=36, corner_radius=0)
-        toolbar.grid(row=0, column=0, sticky="ew")
-        toolbar.grid_columnconfigure(0, weight=1)
+        ctk.CTkFrame(console_outer, height=1, fg_color="#21262d").grid(
+            row=0, column=0, sticky="ew")
 
-        ctk.CTkLabel(toolbar, text="  Output Console",
-                     font=ctk.CTkFont(size=12, weight="bold"),
-                     text_color="#58a6ff").grid(row=0, column=0, sticky="w", padx=4)
+        # Console toolbar
+        con_tb = ctk.CTkFrame(console_outer, fg_color="#161b22",
+                              height=34, corner_radius=0)
+        con_tb.grid(row=1, column=0, sticky="ew")
+        con_tb.grid_columnconfigure(0, weight=1)
 
-        btn_row = ctk.CTkFrame(toolbar, fg_color="transparent")
+        ctk.CTkLabel(con_tb, text="  Output Console",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color="#58a6ff"
+                     ).grid(row=0, column=0, sticky="w", padx=4)
+
+        btn_row = ctk.CTkFrame(con_tb, fg_color="transparent")
         btn_row.grid(row=0, column=1, sticky="e", padx=6)
 
-        ctk.CTkLabel(btn_row, text="Ctrl+L = clear  |  Esc = stop",
-                     text_color="#484f58", font=ctk.CTkFont(size=10)).pack(
-            side="left", padx=(0, 12), pady=8)
+        ctk.CTkLabel(btn_row, text="Ctrl+L  ·  Esc",
+                     text_color="#484f58",
+                     font=ctk.CTkFont(size=10)
+                     ).pack(side="left", padx=(0, 10), pady=6)
 
-        ctk.CTkButton(btn_row, text="Copy", width=70, height=26,
-                      fg_color="#21262d", hover_color="#30363d",
-                      command=self._copy_console).pack(side="left", padx=4, pady=5)
-        ctk.CTkButton(btn_row, text="Clear", width=70, height=26,
-                      fg_color="#21262d", hover_color="#30363d",
-                      command=self.clear_console).pack(side="left", padx=4, pady=5)
-        ctk.CTkButton(btn_row, text="Stop", width=80, height=26,
-                      fg_color="#da3633", hover_color="#b91c1c",
-                      command=self._stop_tool).pack(side="left", padx=(0, 4), pady=5)
+        for text, cmd, color in [
+            ("Copy",  self._copy_console, "#21262d"),
+            ("Clear", self.clear_console, "#21262d"),
+            ("Stop",  self._stop_tool,    "#da3633"),
+        ]:
+            ctk.CTkButton(btn_row, text=text, width=66, height=24,
+                          fg_color=color, hover_color="#30363d",
+                          font=ctk.CTkFont(size=10),
+                          command=cmd
+                          ).pack(side="left", padx=3, pady=5)
 
-        # Text widget — we use the inner tk.Text for tag-based colour
+        # Console text widget
         self._console = ctk.CTkTextbox(
             console_outer,
             font=ctk.CTkFont(family="Consolas", size=12),
             fg_color="#010409",
-            text_color="#c9d1d9",
+            text_color="#e6edf3",
             corner_radius=0,
             wrap="word",
             state="disabled",
         )
-        self._console.grid(row=1, column=0, sticky="nsew")
+        self._console.grid(row=2, column=0, sticky="nsew")
 
-        # Configure colour tags on the underlying tk.Text widget
         self._tw = self._console._textbox
         self._tw.tag_configure("error",   foreground="#f85149")
         self._tw.tag_configure("warning", foreground="#d29922")
         self._tw.tag_configure("success", foreground="#3fb950")
         self._tw.tag_configure("info",    foreground="#58a6ff")
         self._tw.tag_configure("dim",     foreground="#484f58")
-        self._tw.tag_configure("header",  foreground="#58a6ff", font="Consolas 12 bold")
 
-        # ── Build pages ───────────────────────────────────────────────────
+        # ── Pages ─────────────────────────────────────────────────────────────
         out = self.append_output
-        self._pages["home"]   = HomePage(self._page_container, navigate_cb=self._navigate)
-        self._pages["recon"]  = ReconPage(self._page_container, self._runner, out)
+        self._pages["home"]   = HomePage  (self._page_container, navigate_cb=self._navigate)
+        self._pages["recon"]  = ReconPage (self._page_container, self._runner, out)
         self._pages["netmap"] = NetMapPage(self._page_container, self._runner, out)
         self._pages["mitm"]   = MITMPage  (self._page_container, self._runner, out)
         self._pages["creds"]  = CredsPage (self._page_container, self._runner, out)
         self._pages["msf"]    = MSFPage   (self._page_container, self._runner, out)
         self._pages["wifi"]   = WiFiPage  (self._page_container, self._runner, out)
         self._pages["ad"]     = ADPage    (self._page_container, self._runner, out)
-        self._pages["nids"]   = NIDSPage (self._page_container, self._runner, out)
-        self._pages["pas"]  = PASPage (self._page_container, self._runner, out)
-        self._pages["sma"]  = SMAPage (self._page_container, self._runner, out)
-        self._pages["wat"]  = WATPage (self._page_container, self._runner, out)
-        self._pages["pgn"]  = PGNPage (self._page_container, self._runner, out)
+        self._pages["nids"]   = NIDSPage  (self._page_container, self._runner, out)
+        self._pages["pas"]    = PASPage   (self._page_container, self._runner, out)
+        self._pages["sma"]    = SMAPage   (self._page_container, self._runner, out)
+        self._pages["wat"]    = WATPage   (self._page_container, self._runner, out)
+        self._pages["pgn"]    = PGNPage   (self._page_container, self._runner, out)
         self._pages["ceh"]    = CEHPage   (self._page_container, self._runner, out)
         self._pages["report"] = ReportPage(self._page_container, self._runner, out)
 
-    # ──────────────────────────────────────────────────────────────────────
+    # ── Navigation ────────────────────────────────────────────────────────────
+
     def _navigate(self, key: str) -> None:
         if key == self._active_page:
             return
         if self._active_page and self._active_page in self._pages:
             self._pages[self._active_page].pack_forget()
+
         self._pages[key].pack(fill="both", expand=True)
         self._active_page = key
 
-        for k, btn in self._nav_btns.items():
+        for k in self._accents:
             if k == key:
-                btn.configure(fg_color="#1f6aa5", text_color="white")
+                self._accents[k].configure(fg_color="#58a6ff")
+                self._nav_labels[k].configure(
+                    text_color="#e6edf3", fg_color="#1c2128")
             else:
-                btn.configure(fg_color="transparent", text_color="gray70")
+                self._accents[k].configure(fg_color="transparent")
+                self._nav_labels[k].configure(
+                    text_color="#7d8590", fg_color="transparent")
 
-    # ──────────────────────────────────────────────────────────────────────
+    # ── Console ───────────────────────────────────────────────────────────────
+
     def append_output(self, text: str) -> None:
-        """Thread-safe, colour-tagged append to the output console."""
         tag = self._classify_tag(text)
-
         def _do() -> None:
             at_bottom = self._tw.yview()[1] >= 0.98
             self._tw.configure(state="normal")
@@ -257,7 +330,6 @@ class App(ctk.CTk):
             if at_bottom:
                 self._tw.see("end")
             self._tw.configure(state="disabled")
-
         self.after(0, _do)
 
     @staticmethod
@@ -268,11 +340,9 @@ class App(ctk.CTk):
                 return tag
         return ""
 
-    # ──────────────────────────────────────────────────────────────────────
     def _copy_console(self) -> None:
-        text = self._tw.get("1.0", "end")
         self.clipboard_clear()
-        self.clipboard_append(text)
+        self.clipboard_append(self._tw.get("1.0", "end"))
 
     def clear_console(self) -> None:
         self._tw.configure(state="normal")
@@ -283,19 +353,20 @@ class App(ctk.CTk):
         if self._runner.is_running:
             self._runner.stop()
 
-    # ──────────────────────────────────────────────────────────────────────
+    # ── Status polling ────────────────────────────────────────────────────────
+
     def _poll_status(self) -> None:
-        """Update sidebar status every 400 ms."""
         if self._runner.is_running:
             tool = self._runner.active_tool or "tool"
             self._status_dot.configure(text_color="#d29922")
-            self._status_text.configure(text=f"Running {tool}…")
+            self._status_text.configure(text=f"Running  {tool}")
         else:
             self._status_dot.configure(text_color="#3fb950")
             self._status_text.configure(text="Ready")
         self.after(400, self._poll_status)
 
-    # ──────────────────────────────────────────────────────────────────────
+    # ── Shortcuts ─────────────────────────────────────────────────────────────
+
     def _bind_shortcuts(self) -> None:
         self.bind_all("<Control-l>", lambda _e: self.clear_console())
         self.bind_all("<Control-L>", lambda _e: self.clear_console())
