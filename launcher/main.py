@@ -30,7 +30,7 @@ def _ensure_admin() -> None:
     else:
         # Running as a Python script / module
         exe    = sys.executable
-        params = " ".join(["-m", "launcher"] + sys.argv[1:])
+        params = " ".join(["-m", "launcher.main"] + sys.argv[1:])
 
     ctypes.windll.shell32.ShellExecuteW(
         None, "runas", exe, params, os.getcwd(), 1
