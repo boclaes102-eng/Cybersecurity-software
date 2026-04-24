@@ -14,11 +14,11 @@ _TOOLS = [
         "title": "Network Map",
         "desc": (
             "Discover and visualize the local network:\n"
-            "ARP scan · 2-D interactive topology graph\n"
-            "Click any node to select it as attack target\n\n"
-            "Drag nodes · colour-coded device types · one-click target set."
+            "Phase 1 — ARP scan (instant topology)\n"
+            "Phase 2 — nmap: OS · open ports · vendor\n\n"
+            "Risk rings · drag nodes · click to set target."
         ),
-        "deps": ["scapy"],
+        "deps": ["scapy", "nmap"],
     },
     {
         "key": "nids",
