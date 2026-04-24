@@ -5,4 +5,4 @@ if exist ".venv\Scripts\activate.bat" (
     call .venv\Scripts\activate.bat
 )
 
-python -m launcher.main
+pythonw -m launcher.main

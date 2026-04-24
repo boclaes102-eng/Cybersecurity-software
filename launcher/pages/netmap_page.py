@@ -556,7 +556,7 @@ class NetMapPage(ctk.CTkFrame):
 
         self._target_btn = ctk.CTkButton(
             p, text="⊛  Set as Target", state="disabled",
-            fg_color=_CYAN, hover_color="#388bfd",
+            fg_color=_GREEN, hover_color="#2ea043",
             font=ctk.CTkFont(size=12, weight="bold"),
             command=self._set_target,
         )
